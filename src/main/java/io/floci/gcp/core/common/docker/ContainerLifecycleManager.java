@@ -29,6 +29,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -244,7 +245,35 @@ public class ContainerLifecycleManager {
         if (specLabels != null) {
             labels.putAll(specLabels);
         }
-        return labels;
+        return ContainerStorageHelper.withLegacyAliases(labels);
+    }
+
+    /**
+     * Lists containers (running or not) matching {@code labelFilter}. When the filter names a
+     * resource-identity label, the query runs again with the legacy keys and the results are merged by
+     * container id, so containers created before the {@code io.floci.*} keys are found too. Callers
+     * read the identity labels of each result with {@link ContainerStorageHelper#labelValue}.
+     */
+    public List<Container> listContainersByLabels(String description, Map<String, String> labelFilter) {
+        Map<String, Container> merged = new LinkedHashMap<>();
+        for (Container container : listContainersWithLabels(description, labelFilter)) {
+            merged.put(container.getId(), container);
+        }
+        Map<String, String> legacyFilter = ContainerStorageHelper.legacyLabelFilter(labelFilter);
+        if (!legacyFilter.isEmpty()) {
+            for (Container container : listContainersWithLabels(description + " (legacy labels)", legacyFilter)) {
+                merged.putIfAbsent(container.getId(), container);
+            }
+        }
+        return List.copyOf(merged.values());
+    }
+
+    private List<Container> listContainersWithLabels(String description, Map<String, String> labelFilter) {
+        List<Container> containers = dockerApi(description, () -> dockerClient().listContainersCmd()
+                .withShowAll(true)
+                .withLabelFilter(labelFilter)
+                .exec());
+        return containers == null ? List.of() : containers;
     }
 
     public void removeVolume(String volumeName) {

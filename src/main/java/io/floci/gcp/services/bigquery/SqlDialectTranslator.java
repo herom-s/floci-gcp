@@ -162,7 +162,6 @@ final class SqlDialectTranslator {
         rejectScripts();
         quoteOffsetIdentifiers();
         parenthesizeIntervalValues();
-        rewriteArraySubscripts();
     }
 
     /**
@@ -565,6 +564,7 @@ final class SqlDialectTranslator {
 
     private Translation runDml(String sql) {
         prepare(sql);
+        rewriteArraySubscripts();
         List<Integer> sig = significantIndexes();
         String first = tokens.get(sig.getFirst()).upper();
         int at = 1;
@@ -1036,6 +1036,7 @@ final class SqlDialectTranslator {
 
     private Translation run(String sql) {
         prepare(sql);
+        rewriteArraySubscripts();
         String statement = statementType(sql);
         if (!statement.equals("SELECT")) {
             throw invalidQuery("Statement type " + statement + " is not supported by the floci BigQuery"

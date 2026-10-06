@@ -585,7 +585,7 @@ final class SqlDialectTranslator {
                 previous--;
             }
             Token p = previous >= 0 ? tokens.get(previous) : null;
-            if (p != null && (p.isPunct(".") || p.isKeyword("AS") || p.isPunct("<") || endsOperand(p))) {
+            if (p != null && (p.isPunct(".") || p.isKeyword("AS") || p.isPunct("<") || endsMergeOperand(p))) {
                 continue;
             }
             columns.add(i);
@@ -596,7 +596,7 @@ final class SqlDialectTranslator {
             "VALUES", "ROW", "UPDATE", "DELETE");
 
     /** True when {@code t} can end an operand, so a word right after it is not a column reference. */
-    private static boolean endsOperand(Token t) {
+    private static boolean endsMergeOperand(Token t) {
         return t.kind == Kind.NUMBER || t.kind == Kind.STRING || t.kind == Kind.QIDENT
                 || t.isPunct(")") || t.isPunct("]")
                 || (t.kind == Kind.IDENT && !GOOGLESQL_RESERVED.contains(t.upper())

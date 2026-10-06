@@ -258,6 +258,19 @@ class SqlDialectTranslatorTest {
     }
 
     @Test
+    void initcapWalksTheCharactersAgainstTheDelimiters() {
+        String rendered = sql("SELECT INITCAP(name) AS n FROM ds.t");
+        assertTrue(rendered.startsWith("SELECT (CASE WHEN (name) IS NULL OR (' ' || chr(9)"), rendered);
+        assertTrue(rendered.contains("'[](){}/|\\<>!?@\"^#$&~_,.:;*%+-'"), rendered);
+        assertTrue(rendered.contains("list_transform(range(1, length((name)) + 1), lambda __i:"), rendered);
+        assertTrue(sql("SELECT INITCAP(name, '12') AS n FROM ds.t").contains("strpos(('12'), substr((name), __i, 1))"));
+        assertEquals("invalidQuery", assertThrows(GcpException.class,
+                () -> sql("SELECT INITCAP() FROM ds.t")).getReason());
+        assertEquals("invalidQuery", assertThrows(GcpException.class,
+                () -> sql("SELECT INITCAP(a, b, c) FROM ds.t")).getReason());
+    }
+
+    @Test
     void functionShimsRewriteToDuckDb() {
         assertEquals("SELECT (CASE WHEN (b) = 0 THEN NULL ELSE (a) / (b) END) AS r", sql("SELECT SAFE_DIVIDE(a, b) AS r"));
         assertEquals("SELECT count_if(x > 1) AS c", sql("SELECT COUNTIF(x > 1) AS c"));

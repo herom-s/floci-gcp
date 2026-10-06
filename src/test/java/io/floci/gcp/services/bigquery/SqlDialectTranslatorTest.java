@@ -154,6 +154,18 @@ class SqlDialectTranslatorTest {
     // ── Functions ────────────────────────────────────────────────────────────
 
     @Test
+    void generateDateArrayBecomesADateSeries() {
+        assertEquals("SELECT (CASE WHEN (INTERVAL 1 DAY) = INTERVAL 0 DAY THEN error('GENERATE_ARRAY step cannot be 0.')"
+                + " ELSE coalesce(CAST(generate_series(CAST(CAST(a AS DATE) AS TIMESTAMP), CAST(CAST(b AS DATE) AS TIMESTAMP),"
+                + " INTERVAL 1 DAY) AS DATE[]), CAST([] AS DATE[])) END) AS d FROM \"ds\".\"t\"",
+                sql("SELECT GENERATE_DATE_ARRAY(a, b) AS d FROM ds.t"));
+        assertTrue(sql("SELECT GENERATE_DATE_ARRAY(a, b, INTERVAL 1 MONTH) AS d FROM ds.t")
+                .contains("CAST(CAST(b AS DATE) AS TIMESTAMP), INTERVAL 1 MONTH) AS DATE[])"));
+        assertEquals("invalidQuery", assertThrows(GcpException.class,
+                () -> sql("SELECT GENERATE_DATE_ARRAY(a) FROM ds.t")).getReason());
+    }
+
+    @Test
     void functionShimsRewriteToDuckDb() {
         assertEquals("SELECT (CASE WHEN (b) = 0 THEN NULL ELSE (a) / (b) END) AS r", sql("SELECT SAFE_DIVIDE(a, b) AS r"));
         assertEquals("SELECT count_if(x > 1) AS c", sql("SELECT COUNTIF(x > 1) AS c"));

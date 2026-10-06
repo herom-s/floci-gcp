@@ -18,6 +18,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -164,6 +165,14 @@ class BigQueryDuckDmlIntegrationTest {
         query("DROP VIEW shop.named_top").then().statusCode(200);
         query("CREATE OR REPLACE VIEW shop.named AS SELECT 1 AS one").then().statusCode(200);
         org.junit.jupiter.api.Assertions.assertEquals(List.of(List.of("1")), rows("SELECT one FROM shop.named"));
+    }
+
+    @Test
+    @Order(4)
+    void ctasWithArraySubscripts() {
+        query("CREATE TABLE shop.subscripted AS SELECT [STRUCT('a' AS p)][SAFE_OFFSET(0)].p AS p, [10, 20][OFFSET(1)] AS o")
+                .then().statusCode(200);
+        assertEquals(List.of(List.of("a", "20")), rows("SELECT p, o FROM shop.subscripted"));
     }
 
     @Test

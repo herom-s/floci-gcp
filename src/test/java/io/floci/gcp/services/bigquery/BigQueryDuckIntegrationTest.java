@@ -268,6 +268,29 @@ class BigQueryDuckIntegrationTest {
 
     @Test
     @Order(5)
+    void arrayAggNullModifiersMatchBigQuery() {
+        query("""
+                {"query": "SELECT ARRAY_AGG(x IGNORE NULLS ORDER BY x) a, ARRAY_AGG(DISTINCT x IGNORE NULLS ORDER BY x DESC) b, ARRAY_AGG(IF(x = 1, 'keep ignore nulls', NULL) IGNORE NULLS) c FROM UNNEST([1, NULL, 3, 3]) x", "useLegacySql": false}
+                """)
+                .then().statusCode(200)
+                .body("rows[0].f[0].v.v", equalTo(List.of("1", "3", "3")))
+                .body("rows[0].f[1].v.v", equalTo(List.of("3", "1")))
+                .body("rows[0].f[2].v.v", equalTo(List.of("keep ignore nulls")));
+        query("""
+                {"query": "SELECT ARRAY_AGG(x RESPECT NULLS ORDER BY x) a FROM UNNEST([2, 1]) x", "useLegacySql": false}
+                """)
+                .then().statusCode(200)
+                .body("rows[0].f[0].v.v", equalTo(List.of("1", "2")));
+        query("""
+                {"query": "SELECT x, ARRAY_AGG(x IGNORE NULLS) OVER (ORDER BY x) a FROM UNNEST([1, 2]) x", "useLegacySql": false}
+                """)
+                .then().statusCode(400)
+                .body("error.errors[0].reason", equalTo("invalidQuery"))
+                .body("error.message", containsString("does not support IGNORE NULLS or RESPECT NULLS"));
+    }
+
+    @Test
+    @Order(5)
     void nullArrayIsReturnedAsEmptyArray() {
         query("""
                 {"query": "SELECT CAST(NULL AS ARRAY<INT64>) a, 1 b", "useLegacySql": false}
@@ -276,6 +299,32 @@ class BigQueryDuckIntegrationTest {
                 .body("schema.fields[0].mode", equalTo("REPEATED"))
                 .body("rows[0].f[0].v", equalTo(List.of()))
                 .body("rows[0].f[1].v", equalTo("1"));
+    }
+
+    @Test
+    @Order(5)
+    void arrayAggLimitMatchesBigQuery() {
+        query("""
+                {"query": "SELECT ARRAY_AGG(x IGNORE NULLS ORDER BY x DESC LIMIT 2) top2, ARRAY_AGG(x IGNORE NULLS ORDER BY x LIMIT 1) lowest, ARRAY_AGG(DISTINCT x IGNORE NULLS ORDER BY x LIMIT 2) d, ARRAY_AGG(x LIMIT 0) z FROM UNNEST([3, 1, NULL, 2, 3]) x", "useLegacySql": false}
+                """)
+                .then().statusCode(200)
+                .body("schema.fields.name", equalTo(List.of("top2", "lowest", "d", "z")))
+                .body("rows[0].f[0].v.v", equalTo(List.of("3", "3")))
+                .body("rows[0].f[1].v.v", equalTo(List.of("1")))
+                .body("rows[0].f[2].v.v", equalTo(List.of("1", "2")))
+                .body("rows[0].f[3].v", equalTo(List.of()));
+        query("""
+                {"query": "SELECT g, ARRAY_AGG(x ORDER BY x DESC LIMIT 1) top FROM UNNEST([STRUCT('a' AS g, 1 AS x), ('a', 2), ('b', 3)]) GROUP BY g ORDER BY g", "useLegacySql": false}
+                """)
+                .then().statusCode(200)
+                .body("rows[0].f[1].v.v", equalTo(List.of("2")))
+                .body("rows[1].f[1].v.v", equalTo(List.of("3")));
+        query("""
+                {"query": "SELECT ARRAY_AGG(x LIMIT 1) OVER () z FROM UNNEST([1, 2]) x", "useLegacySql": false}
+                """)
+                .then().statusCode(400)
+                .body("error.errors[0].reason", equalTo("invalidQuery"))
+                .body("error.message", containsString("LIMIT in arguments is not supported on analytic functions"));
     }
 
     @Test

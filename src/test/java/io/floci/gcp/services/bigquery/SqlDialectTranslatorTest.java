@@ -154,6 +154,15 @@ class SqlDialectTranslatorTest {
     // ── Functions ────────────────────────────────────────────────────────────
 
     @Test
+    void currentRowInAWindowFrameStaysAKeyword() {
+        assertEquals("SELECT SUM(x) OVER (ORDER BY x ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS s,"
+                        + " COUNT(*) OVER (ORDER BY x ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) AS c FROM \"ds\".\"t\"",
+                sql("SELECT SUM(x) OVER (ORDER BY x ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS s,"
+                        + " COUNT(*) OVER (ORDER BY x ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) AS c FROM ds.t"));
+        assertEquals("SELECT \"row\" FROM \"ds\".\"t\"", sql("SELECT row FROM ds.t"), "a column named row is still quoted");
+    }
+
+    @Test
     void functionShimsRewriteToDuckDb() {
         assertEquals("SELECT (CASE WHEN (b) = 0 THEN NULL ELSE (a) / (b) END) AS r", sql("SELECT SAFE_DIVIDE(a, b) AS r"));
         assertEquals("SELECT count_if(x > 1) AS c", sql("SELECT COUNTIF(x > 1) AS c"));

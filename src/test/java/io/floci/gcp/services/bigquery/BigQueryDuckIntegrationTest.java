@@ -387,6 +387,17 @@ class BigQueryDuckIntegrationTest {
     }
 
     @Test
+    @Order(5)
+    void windowFramesEndingAtTheCurrentRowRun() {
+        query("""
+                {"query": "SELECT x, SUM(x) OVER (ORDER BY x ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) s, SUM(x) OVER (ORDER BY x RANGE BETWEEN 1 PRECEDING AND CURRENT ROW) r, COUNT(*) OVER (ORDER BY x ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) c FROM UNNEST([1,2,3]) x ORDER BY x", "useLegacySql": false}
+                """)
+                .then().statusCode(200)
+                .body("rows.f.v", equalTo(List.of(List.of("1", "1", "1", "3"), List.of("2", "3", "3", "2"),
+                        List.of("3", "6", "5", "1"))));
+    }
+
+    @Test
     @Order(6)
     void dryRunReturnsSchemaWithoutAJob() {
         query("""

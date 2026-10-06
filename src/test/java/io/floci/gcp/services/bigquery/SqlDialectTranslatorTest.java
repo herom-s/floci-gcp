@@ -154,6 +154,18 @@ class SqlDialectTranslatorTest {
     // ── Functions ────────────────────────────────────────────────────────────
 
     @Test
+    void structDotStarBecomesUnnest() {
+        assertEquals("SELECT unnest(t.s), t.n FROM \"ds\".\"t\" AS \"t\"", sql("SELECT t.s.*, t.n FROM ds.t t"));
+        assertEquals("SELECT unnest(t.s.inr) FROM \"ds\".\"t\" AS \"t\"", sql("SELECT t.s.inr.* FROM ds.t t"));
+        String call = sql("SELECT g, ANY_VALUE(s).*, MAX(x) AS m FROM ds.t GROUP BY g");
+        assertTrue(call.startsWith("SELECT g, unnest(ANY_VALUE(s)), MAX(x) AS m"), call);
+        assertEquals("SELECT s.* FROM \"ds\".\"t\"", sql("SELECT s.* FROM ds.t"), "a bare name keeps its .*");
+        assertEquals("SELECT t.* FROM \"ds\".\"t\" AS \"t\"", sql("SELECT t.* FROM ds.t t"));
+        assertTrue(assertThrows(GcpException.class, () -> sql("SELECT t.s.* EXCEPT (a) FROM ds.t t"))
+                .getMessage().contains("not supported by the floci BigQuery emulator yet"));
+    }
+
+    @Test
     void functionShimsRewriteToDuckDb() {
         assertEquals("SELECT (CASE WHEN (b) = 0 THEN NULL ELSE (a) / (b) END) AS r", sql("SELECT SAFE_DIVIDE(a, b) AS r"));
         assertEquals("SELECT count_if(x > 1) AS c", sql("SELECT COUNTIF(x > 1) AS c"));

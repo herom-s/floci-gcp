@@ -629,6 +629,24 @@ public class BigQueryService {
         return job;
     }
 
+    /**
+     * An integer job option. JSON clients send it as a number or, like the Python client for
+     * {@code skipLeadingRows}, as a decimal string.
+     */
+    private static Integer integerOption(Object value, String name) {
+        if (value instanceof Number n) {
+            return n.intValue();
+        }
+        if (value instanceof String s && !s.isBlank()) {
+            try {
+                return Integer.valueOf(s.trim());
+            } catch (NumberFormatException e) {
+                throw GcpException.invalidArgument("Invalid value for " + name + ": " + s).withReason("invalid");
+            }
+        }
+        return null;
+    }
+
     private BigQuerySqlEngine.Request request(String projectId, String sql, QueryOptions options, boolean dryRun) {
         return new BigQuerySqlEngine.Request(projectId, sql, options.defaultDatasetId(), options.queryParameters(),
                 options.parameterMode(), dryRun);
@@ -1198,7 +1216,7 @@ public class BigQueryService {
             }
             result = new BigQuerySqlEngine.Result(new TableSchema(schema), rows, "LOAD", 0);
         } else {
-            Integer skip = config.get("skipLeadingRows") instanceof Number n ? n.intValue() : null;
+            Integer skip = integerOption(config.get("skipLeadingRows"), "skipLeadingRows");
             result = engine.readFiles(new BigQuerySqlEngine.LoadSource(projectId, format, fileIds,
                     format.equals("PARQUET") && config.get("schema") == null ? null : schema, skip,
                     (String) config.get("fieldDelimiter"), (String) config.get("quote"),

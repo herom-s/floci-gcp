@@ -109,6 +109,23 @@ class BigQueryDuckLoadIntegrationTest {
     }
 
     @Test
+    @Order(2)
+    void skipLeadingRowsSentAsAStringSkipsTheHeader() {
+        // The Python client (and dbt seed through it) sends skipLeadingRows as a string.
+        load(Map.of("sourceUris", List.of("gs://" + BUCKET + "/people.csv"), "skipLeadingRows", "1",
+                "destinationTable", destination("people_string_skip"),
+                "schema", Map.of("fields", List.of(
+                        Map.of("name", "name", "type", "STRING"),
+                        Map.of("name", "age", "type", "INTEGER"),
+                        Map.of("name", "joined", "type", "TIMESTAMP")))))
+                .then().statusCode(200)
+                .body("status.errorResult", nullValue())
+                .body("statistics.load.outputRows", equalTo("3"));
+        assertEquals(List.of("ana", "bo", "c, d"),
+                rows("people_string_skip").stream().map(r -> r.getFirst()).toList());
+    }
+
+    @Test
     @Order(3)
     void wildcardUrisLoadEveryMatchingObject() {
         load(Map.of("sourceUris", List.of("gs://" + BUCKET + "/parts/part-*.csv"),

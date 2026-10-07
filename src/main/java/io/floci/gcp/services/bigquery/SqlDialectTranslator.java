@@ -772,7 +772,8 @@ final class SqlDialectTranslator {
             Token t = i < tokens.size() ? tokens.get(i) : null;
             boolean itemEnds = t == null
                     || (depth == 0 && (t.isPunct(",") || t.isPunct(")")
-                    || (t.kind == Kind.IDENT && (t.isKeyword("FROM") || CLAUSE_END_KEYWORDS.contains(t.upper()))
+                    || (t.kind == Kind.IDENT && ((t.isKeyword("FROM") && !isDistinctFromOperator(i))
+                            || CLAUSE_END_KEYWORDS.contains(t.upper()))
                             && !followsStar(i))));
             if (itemEnds) {
                 quoteImplicitAlias(itemStart, i);
@@ -846,7 +847,8 @@ final class SqlDialectTranslator {
                 items.add(new int[] {itemStart, end});
                 itemStart = end + 1;
             } else if (depth == 0 && t.kind == Kind.IDENT
-                    && (t.isKeyword("FROM") || CLAUSE_END_KEYWORDS.contains(t.upper()))) {
+                    && ((t.isKeyword("FROM") && !isDistinctFromOperator(end))
+                            || CLAUSE_END_KEYWORDS.contains(t.upper()))) {
                 break;
             }
         }
@@ -1092,7 +1094,7 @@ final class SqlDialectTranslator {
             }
 
             // IDENT
-            if (upper.equals("FROM")) {
+            if (upper.equals("FROM") && !isDistinctFromOperator(i)) {
                 inFrom = true;
                 expectTable = true;
             } else if (upper.equals("JOIN")) {
@@ -1734,6 +1736,25 @@ final class SqlDialectTranslator {
             ranges.add(new int[] {start, close});
         }
         return ranges;
+    }
+
+    /** True when the FROM at {@code index} belongs to {@code IS [NOT] DISTINCT FROM}, not a FROM clause. */
+    private boolean isDistinctFromOperator(int index) {
+        int distinct = significantIndexBefore(index);
+        if (distinct < 0 || !tokens.get(distinct).isKeyword("DISTINCT")) {
+            return false;
+        }
+        int before = significantIndexBefore(distinct);
+        return before >= 0 && (tokens.get(before).isKeyword("IS") || tokens.get(before).isKeyword("NOT"));
+    }
+
+    private int significantIndexBefore(int index) {
+        for (int k = index - 1; k >= 0; k--) {
+            if (tokens.get(k).kind != Kind.SPACE) {
+                return k;
+            }
+        }
+        return -1;
     }
 
     private int matchingParen(int open) {

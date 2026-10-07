@@ -2,7 +2,7 @@
 
 Personal record of my BigQuery fixes for floci-gcp: what went upstream, what is held, and the rules for sending. This branch (`notes/fix-tracker`) only holds this file; it is not meant to be merged anywhere.
 
-Last updated: 2026-10-07 (added #9). Upstream base for new work: `floci-io/floci-gcp` `main` @ `5dabe8e` (0.10.0).
+Last updated: 2026-10-07 (added #9 and #10). Upstream base for new work: `floci-io/floci-gcp` `main` @ `5dabe8e` (0.10.0).
 
 Most of these were found by running a real dbt-bigquery project (bob-datahub-sync, ~170 models) and its FastAPI dashboards against floci's DuckDB engine.
 
@@ -32,7 +32,7 @@ Most of these were found by running a real dbt-bigquery project (bob-datahub-syn
 
 ## Held fixes (pushed to this fork, no issue or PR yet)
 
-All 9 branch off `5dabe8e` (0.10.0) and need a rebase onto `upstream/main` before sending.
+All 10 branch off `5dabe8e` (0.10.0) and need a rebase onto `upstream/main` before sending.
 
 | # | Branch | Commit | Title | What it fixes | Tests | Evidence |
 |---|---|---|---|---|---|---|
@@ -45,6 +45,7 @@ All 9 branch off `5dabe8e` (0.10.0) and need a rebase onto `upstream/main` befor
 | 7 | `fix/bigquery-initcap` | `709c9d7` | support INITCAP | DuckDB has no INITCAP; character walk with BigQuery's default delimiter set and optional custom delimiters | unit 49, Duck IT 11 | `initcap-2026-10-06.txt` |
 | 8 | `fix/bigquery-any-value-having` | `44bc5ea` | support ANY_VALUE with HAVING MAX and HAVING MIN | `ANY_VALUE(x HAVING MAX y)` was a parser error; now `arg_max_null`/`arg_min_null` with BigQuery's NULL and tie rules, and its error for `OVER` | unit 49, Duck IT 11 | `having-max-2026-10-06.txt` |
 | 9 | `fix/bigquery-alias-after-null-keyword` | `e3f6110` | treat a name after NULL, TRUE or FALSE as an implicit alias | `SELECT x IS NOT NULL c` (also `NULL n`, `TRUE t`, `x IS NOT FALSE nf`) got `AS f0_` appended after the alias, a DuckDB syntax error; `NULL`/`TRUE`/`FALSE` now end a value like `END` does | unit 49, Duck IT 11, DML IT 12 | `null-alias-2026-10-07.txt` |
+| 10 | `fix/bigquery-is-distinct-from` | `f77e84c` | keep IS [NOT] DISTINCT FROM out of FROM clause handling | the `FROM` in `a IS [NOT] DISTINCT FROM b` was read as a FROM clause, so the operand was resolved as a table (`Table name "b" missing dataset`) in the select list, `WHERE`, `JOIN ... ON` and `CASE WHEN` | unit 49, Duck IT 11, DML IT 12 | `is-distinct-from-2026-10-07.txt` |
 
 Notes for when these go up:
 
@@ -54,8 +55,8 @@ Notes for when these go up:
 
 ## `local/all-fixes`
 
-Integration branch: upstream 0.10.0 plus every PR branch above and all 9 held fixes, merged. It is what the local `floci-gcp:local` image is built from (`docker build -f docker/Dockerfile -t floci-gcp:local .`). With it, bob-datahub-sync's dbt project builds 166/166 models and all of its `/ads/*` dashboard endpoints answer. Rebuild it from the branches; don't send it upstream.
+Integration branch: upstream 0.10.0 plus every PR branch above and all 10 held fixes, merged. It is what the local `floci-gcp:local` image is built from (`docker build -f docker/Dockerfile -t floci-gcp:local .`). With it, bob-datahub-sync's dbt project builds 166/166 models and all of its `/ads/*` dashboard endpoints answer. Rebuild it from the branches; don't send it upstream.
 
 ## Known, not fixed yet
 
-- `IS [NOT] DISTINCT FROM` in a select list: the `FROM` is taken as the start of a FROM clause, so `SELECT x IS NOT DISTINCT FROM NULL c FROM ...` fails with `Table name "NULL" missing dataset`. Found while testing #9; BigQuery accepts it (column `c`).
+- None open right now.

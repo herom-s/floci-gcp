@@ -2,7 +2,7 @@
 
 Personal record of my BigQuery fixes for floci-gcp: what went upstream, what is held, and the rules for sending. This branch (`notes/fix-tracker`) only holds this file; it is not meant to be merged anywhere.
 
-Last updated: 2026-10-07 (added #9 and #10). Upstream base for new work: `floci-io/floci-gcp` `main` @ `5dabe8e` (0.10.0).
+Last updated: 2026-10-07 (#335 approved; AGENTS.md checklist). Upstream base for new work: `floci-io/floci-gcp` `main` @ `5dabe8e` (0.10.0).
 
 Most of these were found by running a real dbt-bigquery project (bob-datahub-sync, ~170 models) and its FastAPI dashboards against floci's DuckDB engine.
 
@@ -12,6 +12,7 @@ Most of these were found by running a real dbt-bigquery project (bob-datahub-syn
 - At most 2 open non-draft PRs (repo rule). Anything beyond that goes up as a draft and is marked ready when a slot frees.
 - Branch off current `upstream/main` (rebase before sending); each PR gets its own issue with a repro.
 - Every behaviour claim is checked against real BigQuery first (sandbox project `herom-bq-sandbox-961172`; run `bq` with `CLOUDSDK_CORE_ACCOUNT=heromapp1@gmail.com`). The scripts and outputs live locally in `~/floci-json-evidence/`.
+- Follow floci-gcp's AGENTS.md code style (the maintainer asked for it on #335). Before every push, check the diff for: no `var` (write the explicit type, including for-loops and try-with-resources); no inline fully-qualified names (`java.util.Arrays.asList` -> import `Arrays`); imports alphabetical with `java.*`/`javax.*` last and no wildcard imports in `src/main`; no tabs; no em-dashes anywhere, PR descriptions and commit messages included; never an empty `catch`; JBoss `LOG.debugf(...)`-style logging; switch expressions; test names as camelCase sentences. Allowed commit types: `feat`, `fix`, `perf`, `docs`, `chore`.
 - **Held fixes below are pushed here for safekeeping only. No issue or PR until the open drafts (#336, #347, #348, #349) are merged and I decide to send them.**
 
 ## Upstream PRs
@@ -23,7 +24,7 @@ Most of these were found by running a real dbt-bigquery project (bob-datahub-syn
 | [#317](https://github.com/floci-io/floci-gcp/pull/317) | none (related: #316) | `fix/bigquery-implicit-select-alias` | quote implicit select-list aliases | merged 2026-10-05 |
 | [#330](https://github.com/floci-io/floci-gcp/pull/330) | [#316](https://github.com/floci-io/floci-gcp/issues/316) | `fix/bigquery-offset-identifier` | treat offset as an ordinary name | merged 2026-10-06 |
 | [#325](https://github.com/floci-io/floci-gcp/pull/325) | none | `fix/bigquery-interval-expression` | accept expressions as interval step sizes | open, ready for review |
-| [#335](https://github.com/floci-io/floci-gcp/pull/335) | [#337](https://github.com/floci-io/floci-gcp/issues/337) | `fix/bigquery-null-repeated-as-empty` | return a NULL array as an empty array | open, ready for review |
+| [#335](https://github.com/floci-io/floci-gcp/pull/335) | [#337](https://github.com/floci-io/floci-gcp/issues/337) | `fix/bigquery-null-repeated-as-empty` | return a NULL array as an empty array | **approved** by avison9 (2026-10-07); `var` -> `List<TableCell>` fixed in 6d5e089, draft note removed |
 | [#336](https://github.com/floci-io/floci-gcp/pull/336) | [#338](https://github.com/floci-io/floci-gcp/issues/338) | `fix/bigquery-array-agg-ignore-nulls` | support null modifiers and LIMIT in ARRAY_AGG | open, draft |
 | [#347](https://github.com/floci-io/floci-gcp/pull/347) | [#344](https://github.com/floci-io/floci-gcp/issues/344) | `fix/bigquery-ctas-parenthesized-query` | run queries wrapped in parentheses and CTEs inside them | open, draft |
 | [#348](https://github.com/floci-io/floci-gcp/pull/348) | [#345](https://github.com/floci-io/floci-gcp/issues/345) | `fix/bigquery-ctas-destination-table` | report the DDL target table as the job destination | open, draft |
@@ -49,6 +50,7 @@ All 10 branch off `5dabe8e` (0.10.0) and need a rebase onto `upstream/main` befo
 
 Notes for when these go up:
 
+- AGENTS.md cleanup still needed (audit 2026-10-07; all open PRs are clean): inline fully-qualified names in #1 (`java.util.Arrays.asList`, 1), #5 (`java.math.BigDecimal` in `src/main`, `java.util.Map.of` in a test), #6 (1), #8 (3), #9 (2) and #10 (2). Replace with imports when rebasing each branch.
 - The subscripts rewrite must run in `run()`/`runDml()`, not `prepare()`: `classify()` re-translates CREATE TABLE/VIEW text, and the rewrite is not idempotent.
 - The subscripts pass and #336's ARRAY_AGG shim both touch `ARRAY_AGG(...)[...]`; re-test that combination after rebasing.
 - Translator tests from different branches land in the same spots; resolve conflicts by keeping both sides and check with `git diff --name-only --diff-filter=U` before committing a merge.

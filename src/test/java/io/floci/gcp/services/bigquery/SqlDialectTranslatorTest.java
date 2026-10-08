@@ -296,8 +296,12 @@ class SqlDialectTranslatorTest {
         assertEquals("SELECT strftime(d, '%Y-%m-%d %%F %m/%d/%y %H:%M') AS y",
                 sql("SELECT FORMAT_DATE('%F %%F %D %R', d) AS y"));
         assertEquals("SELECT CAST(strptime(s, '%Y-%m-%d') AS DATE) AS y", sql("SELECT PARSE_DATE('%F', s) AS y"));
-        assertEquals("SELECT strftime(d, replace(replace(replace(replace(replace(f, '%%', chr(57344)), '%F', '%Y-%m-%d'),"
-                + " '%D', '%m/%d/%y'), '%R', '%H:%M'), chr(57344), '%%')) AS y", sql("SELECT FORMAT_DATE(f, d) AS y"));
+        assertEquals("SELECT (lpad(CAST(day(d) AS VARCHAR), 2, ' ') || strftime(d, '/%m ') || CAST(quarter(d) AS VARCHAR))"
+                + " AS y", sql("SELECT FORMAT_DATE('%e/%m %Q', d) AS y"));
+        assertEquals("SELECT strftime(d, '%%K a%%') AS y", sql("SELECT FORMAT_DATE('%K a%', d) AS y"));
+        assertTrue(sql("SELECT FORMAT_DATE(f, d) AS y").startsWith("SELECT CASE WHEN f IS NULL OR d IS NULL THEN NULL"
+                + " ELSE array_to_string(list_transform(regexp_extract_all(f, '%E\\*S|%E[0-9]+S|%E4Y|%Ez|%.?|[^%]+'),"
+                + " __fmt_element -> CASE __fmt_element WHEN '%%' THEN strftime(d, '%%')"));
         assertEquals("SELECT (dayofweek(d) + 1) AS w", sql("SELECT EXTRACT(DAYOFWEEK FROM d) AS w"));
         assertEquals("SELECT regexp_extract(s, 'a(b)', 1) AS x", sql("SELECT REGEXP_EXTRACT(s, r'a(b)') AS x"));
         assertEquals("SELECT regexp_replace(s, 'a', 'b', 'g') AS x", sql("SELECT REGEXP_REPLACE(s, 'a', 'b') AS x"));

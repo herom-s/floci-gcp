@@ -1580,12 +1580,14 @@ final class SqlDialectTranslator {
     }
 
     /**
-     * Expands the composite specifiers BigQuery accepts and DuckDB rejects (%F, %D, %R) in a literal
-     * format string. Escaped percent signs are kept, and non-literal formats are returned unchanged.
+     * Expands the composite specifiers BigQuery accepts and DuckDB rejects (%F, %D, %R) in a format
+     * string. Escaped percent signs are kept. A literal is rewritten here; any other format (a parameter,
+     * a column) is rewritten in SQL, with {@code %%} parked on a private-use character meanwhile.
      */
     private static String timeFormat(String format) {
-        if (format.length() < 2 || format.charAt(0) != '\'' || format.charAt(format.length() - 1) != '\'') {
-            return format;
+        if (!isStringLiteral(format)) {
+            return "replace(replace(replace(replace(replace(" + format + ", '%%', chr(57344)), '%F', '%Y-%m-%d'),"
+                    + " '%D', '%m/%d/%y'), '%R', '%H:%M'), chr(57344), '%%')";
         }
         String value = format.substring(1, format.length() - 1).replace("''", "'");
         StringBuilder out = new StringBuilder(value.length() + 16);
@@ -1604,6 +1606,22 @@ final class SqlDialectTranslator {
             });
         }
         return DuckTypes.quoteLiteral(out.toString());
+    }
+
+    /** True for exactly one single-quoted SQL string literal, with quotes escaped by doubling. */
+    private static boolean isStringLiteral(String sql) {
+        if (sql.length() < 2 || sql.charAt(0) != '\'' || sql.charAt(sql.length() - 1) != '\'') {
+            return false;
+        }
+        for (int i = 1; i < sql.length() - 1; i++) {
+            if (sql.charAt(i) == '\'') {
+                if (sql.charAt(i + 1) != '\'' || i + 1 == sql.length() - 1) {
+                    return false;
+                }
+                i++;
+            }
+        }
+        return true;
     }
 
     private static String datePart(String part) {

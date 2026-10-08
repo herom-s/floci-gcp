@@ -275,6 +275,20 @@ class BigQueryDuckIntegrationTest {
                 .then().statusCode(200)
                 .body("rows[0].f.v", equalTo(List.of("2026-03-05", "03/05/26", "2026-03-05 07:08", "2026-03-05 07:08:09",
                         "%F", "2026-03-05", "2026-03-05")));
+        query("""
+                {"query": "SELECT FORMAT_DATE(@f, DATE '2026-03-05') AS a, FORMAT_TIMESTAMP(@g, TIMESTAMP '2026-03-05 07:08:09') AS b, PARSE_DATE(@f2, '2026-03-05') AS c, FORMAT_DATE(@n, DATE '2026-03-05') AS nul",
+                 "parameterMode": "NAMED", "useLegacySql": false,
+                 "queryParameters": [
+                   {"name": "f", "parameterType": {"type": "STRING"}, "parameterValue": {"value": "%F %%F %D"}},
+                   {"name": "g", "parameterType": {"type": "STRING"}, "parameterValue": {"value": "%R"}},
+                   {"name": "f2", "parameterType": {"type": "STRING"}, "parameterValue": {"value": "%F"}},
+                   {"name": "n", "parameterType": {"type": "STRING"}, "parameterValue": {}}]}
+                """)
+                .then().statusCode(200)
+                .body("rows[0].f[0].v", equalTo("2026-03-05 %F 03/05/26"))
+                .body("rows[0].f[1].v", equalTo("07:08"))
+                .body("rows[0].f[2].v", equalTo("2026-03-05"))
+                .body("rows[0].f[3].v", nullValue());
     }
 
     @Test

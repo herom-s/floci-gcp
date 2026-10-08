@@ -1550,7 +1550,7 @@ final class SqlDialectTranslator {
             case "DATE_TRUNC" -> args(a, 2, name, "CAST(date_trunc(" + DuckTypes.quoteLiteral(datePart(a.get(1)))
                     + ", " + at(a, 0) + ") AS DATE)");
             case "FORMAT_TIMESTAMP", "FORMAT_DATETIME", "FORMAT_DATE", "FORMAT_TIME" -> args(a, 2, name,
-                    "strftime(" + at(a, 1) + ", " + timeFormat(at(a, 0)) + ")");
+                    formatCall(at(a, 1), at(a, 0)));
             case "PARSE_TIMESTAMP" -> args(a, 2, name,
                     "CAST(strptime(" + at(a, 1) + ", " + timeFormat(at(a, 0)) + ") AS TIMESTAMPTZ)");
             case "PARSE_DATETIME" -> args(a, 2, name,
@@ -1579,33 +1579,192 @@ final class SqlDialectTranslator {
         return a.get(index).trim();
     }
 
-    /**
-     * Expands the composite specifiers BigQuery accepts and DuckDB rejects (%F, %D, %R) in a format
-     * string. Escaped percent signs are kept. A literal is rewritten here; any other format (a parameter,
-     * a column) is rewritten in SQL, with {@code %%} parked on a private-use character meanwhile.
-     */
-    private static String timeFormat(String format) {
-        if (!isStringLiteral(format)) {
-            return "replace(replace(replace(replace(replace(" + format + ", '%%', chr(57344)), '%F', '%Y-%m-%d'),"
-                    + " '%D', '%m/%d/%y'), '%R', '%H:%M'), chr(57344), '%%')";
+    /** BigQuery format elements that DuckDB's strftime and strptime handle the same way. */
+    private static final String SHARED_ELEMENTS = "AaBbdGHhIjMmpSTUuVWwXYyZ";
+
+    /** BigQuery composite elements, spelled with elements DuckDB knows; valid for strptime too. */
+    private static final Map<String, String> COMPOSITE_ELEMENTS = Map.of(
+            "%F", "%Y-%m-%d", "%D", "%m/%d/%y", "%x", "%m/%d/%y", "%R", "%H:%M", "%r", "%I:%M:%S %p",
+            "%E4Y", "%Y");
+
+    /** Elements DuckDB lacks or renders differently, emulated in SQL by {@link #emulatedElement}. */
+    private static final List<String> EMULATED_ELEMENTS = List.of(
+            "%C", "%c", "%e", "%g", "%k", "%l", "%P", "%Q", "%s", "%E*S");
+
+    /** Every element a format read from a column may use, each rendered with a constant format. */
+    private static final List<String> PER_ROW_ELEMENTS = perRowElements();
+
+    private static List<String> perRowElements() {
+        List<String> elements = new ArrayList<>(List.of("%%", "%t", "%n", "%z", "%Ez"));
+        for (char c : SHARED_ELEMENTS.toCharArray()) {
+            elements.add("%" + c);
         }
-        String value = format.substring(1, format.length() - 1).replace("''", "'");
-        StringBuilder out = new StringBuilder(value.length() + 16);
-        for (int i = 0; i < value.length(); i++) {
-            char c = value.charAt(i);
-            if (c != '%' || i + 1 == value.length()) {
-                out.append(c);
+        elements.addAll(COMPOSITE_ELEMENTS.keySet());
+        elements.addAll(EMULATED_ELEMENTS);
+        for (int digits = 0; digits <= 12; digits++) {
+            elements.add("%E" + digits + "S");
+        }
+        return List.copyOf(elements);
+    }
+
+    /**
+     * Renders FORMAT_DATE, FORMAT_DATETIME, FORMAT_TIME and FORMAT_TIMESTAMP. A constant format (a
+     * literal or a parameter) is split into elements here: those strftime renders like BigQuery stay in
+     * one strftime call, the rest are emulated and concatenated. DuckDB only takes a constant strftime
+     * format, so a format read from a column is split per row in SQL instead, with a constant strftime
+     * per element.
+     */
+    private static String formatCall(String value, String format) {
+        String constant = constantString(format);
+        if (constant == null) {
+            return perRowFormat(value, format);
+        }
+        List<String> parts = new ArrayList<>();
+        StringBuilder pattern = new StringBuilder();
+        for (String element : formatElements(constant)) {
+            String fragment = strftimePattern(element);
+            if (fragment != null) {
+                pattern.append(fragment);
                 continue;
             }
-            char spec = value.charAt(++i);
-            out.append(switch (spec) {
-                case 'F' -> "%Y-%m-%d";
-                case 'D' -> "%m/%d/%y";
-                case 'R' -> "%H:%M";
-                default -> "%" + spec;
-            });
+            if (!pattern.isEmpty()) {
+                parts.add(strftimeCall(value, pattern.toString()));
+                pattern.setLength(0);
+            }
+            parts.add(emulatedElement(value, element));
+        }
+        if (!pattern.isEmpty() || parts.isEmpty()) {
+            parts.add(strftimeCall(value, pattern.toString()));
+        }
+        return parts.size() == 1 ? parts.getFirst() : "(" + String.join(" || ", parts) + ")";
+    }
+
+    private static String perRowFormat(String value, String format) {
+        StringBuilder elements = new StringBuilder("CASE __fmt_element");
+        for (String element : PER_ROW_ELEMENTS) {
+            String pattern = strftimePattern(element);
+            elements.append(" WHEN ").append(DuckTypes.quoteLiteral(element)).append(" THEN ")
+                    .append(pattern != null ? strftimeCall(value, pattern) : emulatedElement(value, element));
+        }
+        elements.append(" ELSE __fmt_element END");
+        return "CASE WHEN " + format + " IS NULL OR " + value + " IS NULL THEN NULL ELSE array_to_string("
+                + "list_transform(regexp_extract_all(" + format + ", '%E\\*S|%E[0-9]+S|%E4Y|%Ez|%.?|[^%]+'), "
+                + "__fmt_element -> " + elements + "), '') END";
+    }
+
+    private static String strftimeCall(String value, String pattern) {
+        return "strftime(" + value + ", " + DuckTypes.quoteLiteral(pattern) + ")";
+    }
+
+    /** Splits a format into BigQuery elements ({@code %Y}, {@code %%}, {@code %E*S}, ...) and literal text. */
+    private static List<String> formatElements(String format) {
+        List<String> elements = new ArrayList<>();
+        int i = 0;
+        while (i < format.length()) {
+            int end;
+            if (format.charAt(i) != '%') {
+                end = format.indexOf('%', i);
+                end = end < 0 ? format.length() : end;
+            } else if (i + 1 == format.length()) {
+                end = i + 1;
+            } else if (format.charAt(i + 1) == 'E') {
+                end = extendedElementEnd(format, i + 2);
+            } else {
+                end = i + 2;
+            }
+            elements.add(format.substring(i, end));
+            i = end;
+        }
+        return elements;
+    }
+
+    /** End of a {@code %E} element whose modifier starts at {@code i}: *S, a digit count and S, 4Y or z. */
+    private static int extendedElementEnd(String format, int i) {
+        if (format.startsWith("*S", i) || format.startsWith("4Y", i)) {
+            return i + 2;
+        }
+        if (format.startsWith("z", i)) {
+            return i + 1;
+        }
+        int digits = i;
+        while (digits < format.length() && Character.isDigit(format.charAt(digits))) {
+            digits++;
+        }
+        return digits > i && digits < format.length() && format.charAt(digits) == 'S' ? digits + 1 : i;
+    }
+
+    /**
+     * The strftime pattern for one element, or null when it has to be emulated. Literal text has no
+     * percent sign; an element BigQuery does not know is printed as written, as BigQuery does.
+     */
+    private static String strftimePattern(String element) {
+        if (element.charAt(0) != '%') {
+            return element;
+        }
+        String composite = COMPOSITE_ELEMENTS.get(element);
+        if (composite != null) {
+            return composite;
+        }
+        if (element.length() == 2
+                && (element.charAt(1) == '%' || SHARED_ELEMENTS.indexOf(element.charAt(1)) >= 0)) {
+            return element;
+        }
+        if (EMULATED_ELEMENTS.contains(element) || element.matches("%E\\d{1,2}S")) {
+            return null;
+        }
+        return switch (element) {
+            case "%t" -> "\t";
+            case "%n" -> "\n";
+            // Values are formatted in UTC: FORMAT_TIMESTAMP's time zone argument is not applied.
+            case "%z" -> "+0000";
+            case "%Ez" -> "+00:00";
+            default -> "%" + element;
+        };
+    }
+
+    private static String emulatedElement(String value, String element) {
+        return switch (element) {
+            case "%C" -> "lpad(CAST(year(" + value + ") // 100 AS VARCHAR), 2, '0')";
+            case "%c" -> "(strftime(" + value + ", '%a %b ') || " + emulatedElement(value, "%e")
+                    + " || strftime(" + value + ", ' %H:%M:%S %Y'))";
+            case "%e" -> "lpad(CAST(day(" + value + ") AS VARCHAR), 2, ' ')";
+            case "%g" -> "right(strftime(" + value + ", '%G'), 2)";
+            case "%k" -> "lpad(CAST(hour(" + value + ") AS VARCHAR), 2, ' ')";
+            case "%l" -> "lpad(CAST((hour(" + value + ") + 11) % 12 + 1 AS VARCHAR), 2, ' ')";
+            case "%P" -> "lower(strftime(" + value + ", '%p'))";
+            case "%Q" -> "CAST(quarter(" + value + ") AS VARCHAR)";
+            case "%s" -> "CAST(CAST(floor(epoch(" + value + ")) AS BIGINT) AS VARCHAR)";
+            case "%E*S" -> "(strftime(" + value + ", '%S') || CASE WHEN strftime(" + value + ", '%f') = '000000'"
+                    + " THEN '' ELSE '.' || rtrim(strftime(" + value + ", '%f'), '0') END)";
+            default -> {
+                int digits = Integer.parseInt(element.substring(2, element.length() - 1));
+                yield digits == 0 ? strftimeCall(value, "%S") : "(strftime(" + value + ", '%S.') || left(rpad(strftime("
+                        + value + ", '%f'), " + digits + ", '0'), " + digits + "))";
+            }
+        };
+    }
+
+    /**
+     * Format for strptime: composite elements of a constant format (a literal or a parameter) are
+     * expanded. DuckDB only takes a constant strptime format, so any other format is passed through.
+     */
+    private static String timeFormat(String format) {
+        String constant = constantString(format);
+        if (constant == null) {
+            return format;
+        }
+        StringBuilder out = new StringBuilder(constant.length() + 16);
+        for (String element : formatElements(constant)) {
+            out.append(COMPOSITE_ELEMENTS.getOrDefault(element, element));
         }
         return DuckTypes.quoteLiteral(out.toString());
+    }
+
+    /** The value of a string literal or of a STRING parameter ({@code CAST('...' AS VARCHAR)}); null otherwise. */
+    private static String constantString(String sql) {
+        String literal = sql.startsWith("CAST(") && sql.endsWith(" AS VARCHAR)")
+                ? sql.substring("CAST(".length(), sql.length() - " AS VARCHAR)".length()) : sql;
+        return isStringLiteral(literal) ? literal.substring(1, literal.length() - 1).replace("''", "'") : null;
     }
 
     /** True for exactly one single-quoted SQL string literal, with quotes escaped by doubling. */

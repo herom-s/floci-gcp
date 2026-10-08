@@ -2244,12 +2244,14 @@ final class SqlDialectTranslator {
     }
 
     /**
-     * Expands the composite specifiers BigQuery accepts and DuckDB rejects (%F, %D, %R) in a literal
-     * format string. Escaped percent signs are kept, and non-literal formats are returned unchanged.
+     * Expands the composite specifiers BigQuery accepts and DuckDB rejects (%F, %D, %R) in a format
+     * string. Escaped percent signs are kept. A literal is rewritten here; any other format (a parameter,
+     * a column) is rewritten in SQL, with {@code %%} parked on a private-use character meanwhile.
      */
     private static String timeFormat(String format) {
-        if (format.length() < 2 || format.charAt(0) != '\'' || format.charAt(format.length() - 1) != '\'') {
-            return format;
+        if (!isStringLiteral(format)) {
+            return "replace(replace(replace(replace(replace(" + format + ", '%%', chr(57344)), '%F', '%Y-%m-%d'),"
+                    + " '%D', '%m/%d/%y'), '%R', '%H:%M'), chr(57344), '%%')";
         }
         String value = format.substring(1, format.length() - 1).replace("''", "'");
         StringBuilder out = new StringBuilder(value.length() + 16);

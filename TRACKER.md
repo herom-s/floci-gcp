@@ -33,7 +33,7 @@ Most of these were found by running a real dbt-bigquery project (bob-datahub-syn
 
 ## Held fixes (pushed to this fork, no issue or PR yet)
 
-All 10 branch off `5dabe8e` (0.10.0) and need a rebase onto `upstream/main` before sending.
+1 to 10 branch off `5dabe8e` (0.10.0) and need a rebase onto `upstream/main` before sending; 11 and 12 branch off `362809b` (`upstream/main`, 2026-10-08).
 
 | # | Branch | Commit | Title | What it fixes | Tests | Evidence |
 |---|---|---|---|---|---|---|
@@ -47,6 +47,8 @@ All 10 branch off `5dabe8e` (0.10.0) and need a rebase onto `upstream/main` befo
 | 8 | `fix/bigquery-any-value-having` | `44bc5ea` | support ANY_VALUE with HAVING MAX and HAVING MIN | `ANY_VALUE(x HAVING MAX y)` was a parser error; now `arg_max_null`/`arg_min_null` with BigQuery's NULL and tie rules, and its error for `OVER` | unit 49, Duck IT 11 | `having-max-2026-10-06.txt` |
 | 9 | `fix/bigquery-alias-after-null-keyword` | `e3f6110` | treat a name after NULL, TRUE or FALSE as an implicit alias | `SELECT x IS NOT NULL c` (also `NULL n`, `TRUE t`, `x IS NOT FALSE nf`) got `AS f0_` appended after the alias, a DuckDB syntax error; `NULL`/`TRUE`/`FALSE` now end a value like `END` does | unit 49, Duck IT 11, DML IT 12 | `null-alias-2026-10-07.txt` |
 | 10 | `fix/bigquery-is-distinct-from` | `f77e84c` | keep IS [NOT] DISTINCT FROM out of FROM clause handling | the `FROM` in `a IS [NOT] DISTINCT FROM b` was read as a FROM clause, so the operand was resolved as a table (`Table name "b" missing dataset`) in the select list, `WHERE`, `JOIN ... ON` and `CASE WHEN` | unit 49, Duck IT 11, DML IT 12 | `is-distinct-from-2026-10-07.txt` |
+| 11 | `fix/bigquery-format-date-shorthands` | `5cbee24` | expand %F, %D and %R in FORMAT_* and PARSE_* formats | DuckDB strftime/strptime reject `%F`, `%D`, `%R` ("Unrecognized format for strftime"); literal formats are expanded, `%%` kept; `%T` already worked. Crispin One Page uses `FORMAT_DATE('%F', ...)` | unit 51, Duck IT 12 | `format-date-shorthands.json` |
+| 12 | `fix/bigquery-string-param-temporal-coercion` | `7be55a1` | coerce date-shaped STRING parameters like BigQuery | STRING params were inlined as `CAST(... AS VARCHAR)` and DuckDB refuses `DATE BETWEEN VARCHAR`; date-shaped values are now untyped literals (DuckDB casts them implicitly), others keep the cast so `INT64 = STRING` still fails as in BigQuery | unit 52, Duck IT 12 | `string-param-coercion.json`, `string-param-vs-int64.json`, `string-param-invalid-date.json` |
 
 Notes for when these go up:
 
@@ -57,8 +59,10 @@ Notes for when these go up:
 
 ## `local/all-fixes`
 
-Integration branch: upstream 0.10.0 plus every PR branch above and all 10 held fixes, merged. It is what the local `floci-gcp:local` image is built from (`docker build -f docker/Dockerfile -t floci-gcp:local .`). With it, bob-datahub-sync's dbt project builds 166/166 models and all of its `/ads/*` dashboard endpoints answer. Rebuild it from the branches; don't send it upstream.
+Integration branch: `upstream/main` (merged 2026-10-08 at `362809b`, which brings #294, the Firestore nested update mask fix bob's `update_source` needs) plus every PR branch above and all 12 held fixes, merged. It is what the local `floci-gcp:local` image is built from (`docker build -f docker/Dockerfile -t floci-gcp:local .`). With it, bob-datahub-sync's dbt project builds 166/166 models and all of its `/ads/*` dashboard endpoints answer. Rebuild it from the branches; don't send it upstream.
 
 ## Known, not fixed yet
 
-- None open right now.
+- Implicit alias right after a query parameter: `SELECT @p x` becomes `SELECT <param> x AS f0_` (DuckDB syntax error). Pre-existing, same for any parameter type; found 2026-10-08 while testing #12. `AS x` works.
+- `DATE_ADD(@p, INTERVAL ...)` with a STRING parameter: BigQuery coerces it, DuckDB cannot pick an overload for `STRING_LITERAL + INTERVAL`. Not hit by bob or Crispin yet.
+- #11 only rewrites literal format strings; a format passed as a parameter still reaches DuckDB unchanged.

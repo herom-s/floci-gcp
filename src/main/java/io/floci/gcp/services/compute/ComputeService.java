@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.floci.gcp.config.EmulatorConfig;
 import io.floci.gcp.core.common.GcpException;
+import io.floci.gcp.core.common.LocationCatalog;
 import io.floci.gcp.core.common.ServiceDescriptor;
 import io.floci.gcp.core.common.ServiceRegistry;
 import io.floci.gcp.core.storage.ProjectAwareStorageBackend;
@@ -17,6 +18,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
+import org.jboss.logging.Logger;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.*;
@@ -26,22 +28,28 @@ import java.util.regex.Pattern;
 @ApplicationScoped
 public class ComputeService {
     private static final ObjectMapper JSON = new ObjectMapper();
+    private static final Logger LOG = Logger.getLogger(ComputeService.class);
     private static final Pattern NAME = Pattern.compile("[a-z](?:[-a-z0-9]{0,61}[a-z0-9])?");
     private static final Set<String> LABELLED = Set.of("instances", "disks", "images", "snapshots", "addresses", "forwardingRules");
     private final ProjectAwareStorageBackend<ComputeProject> store;
     private final EmulatorConfig config;
     private final ServiceRegistry registry;
     private final Instance<ComputeResourceHandler> handlers;
+    private final LocationCatalog locations;
 
     @Inject
     public ComputeService(StorageFactory factory, EmulatorConfig config, ServiceRegistry registry,
-                          Instance<ComputeResourceHandler> handlers) {
+                          Instance<ComputeResourceHandler> handlers, LocationCatalog locations) {
         this.store = (ProjectAwareStorageBackend<ComputeProject>) factory.<ComputeProject>create("compute", "compute.json", new TypeReference<Map<String, ComputeProject>>() {});
         this.config = config;
         this.registry = registry;
         this.handlers = handlers;
+        this.locations = locations;
     }
     void start(@Observes StartupEvent event) {
+        config.services().compute().regions().ifPresent(allowed -> allowed.stream()
+                .filter(r -> !r.isEmpty() && !locations.isRegion(r))
+                .forEach(r -> LOG.warnf("Ignoring unknown region %s in floci-gcp.services.compute.regions", r)));
         registry.register(ServiceDescriptor.builder("compute").enabled(config.services().compute().enabled())
                 .storageKey("compute").resourceClasses(ComputeController.class).build());
     }
@@ -93,16 +101,32 @@ public class ComputeService {
         if (parts.length <= index || parts.length > index + 3) { throw GcpException.notFound("Invalid resource path"); }
         Context c = new Context(project, scope, parts[index], parts.length > index + 1 ? parts[index + 1] : null,
                 parts.length > index + 2 ? parts[index + 2] : null, state);
-        if (scope.startsWith("regions/") && !config.services().compute().regions().contains(scope.substring(8))) {
+        if (scope.startsWith("regions/") && !regions().contains(scope.substring(8))) {
             throw GcpException.notFound("Unknown region: " + scope);
         }
         if (scope.startsWith("zones/")) {
             String zone = scope.substring(6);
-            if (config.services().compute().regions().stream().noneMatch(r -> List.of(r + "-a", r + "-b", r + "-c").contains(zone))) {
+            // A zone the catalog does not list stays reachable while stored resources use it:
+            // before the catalog, every region served synthetic -a, -b and -c zones. Inserts
+            // are checked again against the catalog alone.
+            if (!catalogZone(zone) && !holdsScope(state, scope)) {
                 throw GcpException.notFound("Unknown zone: " + zone);
             }
         }
         return c;
+    }
+    private boolean catalogZone(String zone) {
+        return locations.regionOfZone(zone).filter(regions()::contains).isPresent();
+    }
+    private static boolean holdsScope(ComputeProject state, String scope) {
+        String prefix = scope + "/";
+        return state.resources.keySet().stream().anyMatch(k -> k.startsWith(prefix))
+                || state.operations.keySet().stream().anyMatch(k -> k.startsWith(prefix));
+    }
+    private List<String> regions() {
+        return config.services().compute().regions().filter(r -> !r.isEmpty())
+                .map(allowed -> allowed.stream().filter(locations::isRegion).toList())
+                .orElseGet(locations::regions);
     }
     private ComputeResourceHandler handler(Context c) {
         return handlers.stream().filter(h -> h.handles(c.collection())).findFirst()
@@ -116,7 +140,7 @@ public class ComputeService {
                     .map(e -> e.getValue().response).toList(), query);
         }
         if (ComputeCatalog.COLLECTIONS.contains(c.collection())) {
-            List<ObjectNode> values = ComputeCatalog.list(c, config.services().compute().regions());
+            List<ObjectNode> values = ComputeCatalog.list(c, regions(), locations);
             if (c.name() == null) { return page(c, values, query); }
             return values.stream().filter(r -> r.path("name").asText().equals(c.name())).findFirst()
                     .orElseThrow(() -> GcpException.notFound("Catalog resource not found"));
@@ -196,6 +220,9 @@ public class ComputeService {
             name(required(body, "name"));
             c = context(project, path + "/" + body.path("name").asText(), c.state);
             c.query = query;
+            if (c.scope().startsWith("zones/") && !catalogZone(c.scope().substring(6))) {
+                throw GcpException.notFound("Unknown zone: " + c.scope().substring(6));
+            }
             if (c.state.resources.containsKey(c.key())) { throw GcpException.alreadyExists("Resource already exists: " + c.key()); }
             resource = body;
             resource.put("id", Long.toString(++c.state.sequence)).put("kind", "compute#" + singular(c.collection()))
@@ -394,7 +421,7 @@ public class ComputeService {
             String key = path(ref);
             Context target = context(project, key, state);
             if (ComputeCatalog.COLLECTIONS.contains(target.collection)) {
-                return ComputeCatalog.list(target, config.services().compute().regions()).stream()
+                return ComputeCatalog.list(target, regions(), locations).stream()
                         .filter(r -> r.path("name").asText().equals(target.name)).findFirst()
                         .orElseThrow(() -> GcpException.notFound("Catalog resource not found: " + ref));
             }

@@ -1,10 +1,13 @@
 package io.floci.gcp.services.firestore;
 
 import com.google.firestore.v1.Document;
+import com.google.firestore.v1.DocumentMask;
 import com.google.firestore.v1.RunQueryRequest;
 import com.google.firestore.v1.RunQueryResponse;
 import com.google.firestore.v1.StructuredQuery;
 import com.google.firestore.v1.TransactionOptions;
+import com.google.firestore.v1.UpdateDocumentRequest;
+import com.google.firestore.v1.Value;
 import com.google.firestore.v1.Write;
 import io.floci.gcp.core.storage.InMemoryStorage;
 import io.floci.gcp.services.firestore.model.StoredDocument;
@@ -120,6 +123,40 @@ class FirestoreControllerTest {
     }
 
     @Test
+    void updateDocumentWithoutMaskOverwritesDocument() {
+        String name = PARENT + "/col/doc1";
+        controller.updateDocument(UpdateDocumentRequest.newBuilder()
+                .setDocument(documentWith(name, "a", "1"))
+                .build(), new CapturingObserver<>());
+        CapturingObserver<Document> observer = new CapturingObserver<>();
+
+        controller.updateDocument(UpdateDocumentRequest.newBuilder()
+                .setDocument(documentWith(name, "b", "2"))
+                .build(), observer);
+
+        assertNull(observer.error);
+        assertEquals(Set.of("b"), observer.messages.get(0).getFieldsMap().keySet());
+        assertEquals(Set.of("b"), service.getDocument(name).orElseThrow().getFields().keySet());
+    }
+
+    @Test
+    void updateDocumentWithMaskKeepsFieldsOutsideMask() {
+        String name = PARENT + "/col/doc1";
+        controller.updateDocument(UpdateDocumentRequest.newBuilder()
+                .setDocument(documentWith(name, "a", "1"))
+                .build(), new CapturingObserver<>());
+        CapturingObserver<Document> observer = new CapturingObserver<>();
+
+        controller.updateDocument(UpdateDocumentRequest.newBuilder()
+                .setDocument(documentWith(name, "b", "2"))
+                .setUpdateMask(DocumentMask.newBuilder().addFieldPaths("b"))
+                .build(), observer);
+
+        assertNull(observer.error);
+        assertEquals(Set.of("a", "b"), service.getDocument(name).orElseThrow().getFields().keySet());
+    }
+
+    @Test
     void collectionGroupQueryStreamsMatchingDocumentsAtEveryDepth() {
         seedDocument(PARENT + "/users/alice/orders/o1");
         seedDocument(PARENT + "/shops/s1/branches/b1/orders/o2");
@@ -146,5 +183,12 @@ class FirestoreControllerTest {
                         .filter(RunQueryResponse::hasDocument)
                         .map(resp -> resp.getDocument().getName())
                         .collect(Collectors.toSet()));
+    }
+
+    private static Document documentWith(String name, String field, String value) {
+        return Document.newBuilder()
+                .setName(name)
+                .putFields(field, Value.newBuilder().setStringValue(value).build())
+                .build();
     }
 }

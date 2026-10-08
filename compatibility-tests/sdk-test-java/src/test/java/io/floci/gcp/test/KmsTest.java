@@ -1,6 +1,9 @@
 package io.floci.gcp.test;
 
 import com.google.cloud.kms.v1.*;
+import com.google.cloud.location.GetLocationRequest;
+import com.google.cloud.location.ListLocationsRequest;
+import com.google.cloud.location.Location;
 import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -19,7 +22,9 @@ import java.security.PublicKey;
 import java.security.Signature;
 import java.security.spec.MGF1ParameterSpec;
 import java.security.spec.X509EncodedKeySpec;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
@@ -187,6 +192,28 @@ class KmsTest {
         GenerateRandomBytesResponse response = client.generateRandomBytes(
                 LocationName.of(PROJECT_ID, LOCATION).toString(), 32, ProtectionLevel.SOFTWARE);
         assertThat(response.getData().size()).isEqualTo(32);
+    }
+
+    @Test
+    @Order(9)
+    void listAndGetLocations() {
+        List<String> ids = new ArrayList<>();
+        client.listLocations(ListLocationsRequest.newBuilder()
+                        .setName("projects/" + PROJECT_ID).build())
+                .iterateAll().forEach(location -> ids.add(location.getLocationId()));
+        // 43 catalog regions plus KMS's global and three multi-regions: gRPC carries no API identity.
+        assertThat(ids).contains("us-central1", "europe-west1", "global", "us", "europe", "asia").hasSize(47);
+
+        Location location = client.getLocation(
+                GetLocationRequest.newBuilder()
+                        .setName("projects/" + PROJECT_ID + "/locations/" + LOCATION).build());
+        assertThat(location.getLocationId()).isEqualTo(LOCATION);
+        assertThat(location.getLabelsMap()).containsEntry("cloud.googleapis.com/region", LOCATION);
+
+        Location global = client.getLocation(
+                GetLocationRequest.newBuilder()
+                        .setName("projects/" + PROJECT_ID + "/locations/global").build());
+        assertThat(global.getLocationId()).isEqualTo("global");
     }
 
     private static PublicKey parsePem(String pem, String algorithm) throws Exception {

@@ -2,6 +2,7 @@ package io.floci.gcp.services.firestore;
 
 import com.google.firestore.v1.ArrayValue;
 import com.google.firestore.v1.Document;
+import com.google.firestore.v1.DocumentMask;
 import com.google.firestore.v1.DocumentTransform;
 import com.google.firestore.v1.MapValue;
 import com.google.firestore.v1.Precondition;
@@ -10,6 +11,7 @@ import com.google.firestore.v1.Value;
 import com.google.firestore.v1.Write;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Timestamp;
+import com.google.type.LatLng;
 import io.floci.gcp.core.common.GcpException;
 import io.floci.gcp.core.storage.InMemoryStorage;
 import io.floci.gcp.services.firestore.model.StoredDocument;
@@ -227,6 +229,22 @@ class FirestoreServiceTest {
     }
 
     @Test
+    void geoPointValueReadsBackUnchanged() {
+        LatLng at = LatLng.newBuilder().setLatitude(37.422).setLongitude(-122.084).build();
+        Document doc = Document.newBuilder()
+                .setName(DOC_NAME)
+                .putFields("at", Value.newBuilder().setGeoPointValue(at).build())
+                .build();
+        service.applyWrite(Write.newBuilder().setUpdate(doc).build(), Instant.now());
+
+        Value stored = service.getDocument(DOC_NAME).orElseThrow().getFields().get("at").toProto();
+
+        assertEquals(Value.ValueTypeCase.GEO_POINT_VALUE, stored.getValueTypeCase());
+        assertEquals(37.422, stored.getGeoPointValue().getLatitude());
+        assertEquals(-122.084, stored.getGeoPointValue().getLongitude());
+    }
+
+    @Test
     void equalFilterMatchesBytesReadBackFromDocument() {
         ByteString payload = ByteString.copyFromUtf8("secret");
         service.applyWrite(topLevelValueDocument("matching", "blob",
@@ -366,6 +384,192 @@ class FirestoreServiceTest {
 
         StoredValue blobs = service.getDocument(name).orElseThrow().getFields().get("blobs");
         assertEquals(0, blobs.getArrayValue().size());
+    }
+
+    @Test
+    void equalityFilterMatchesArrayValue() {
+        service.applyWrite(topLevelValueDocument("matching", "tags", stringArray("a", "b")), Instant.now());
+        service.applyWrite(topLevelValueDocument("reordered", "tags", stringArray("b", "a")), Instant.now());
+        service.applyWrite(topLevelValueDocument("longer", "tags", stringArray("a", "b", "c")), Instant.now());
+
+        List<StoredDocument> results = runTopLevelFilter("tags",
+                StructuredQuery.FieldFilter.Operator.EQUAL, stringArray("a", "b"));
+
+        assertEquals(List.of(DB + "/documents/customers/matching"),
+                results.stream().map(StoredDocument::getName).toList());
+    }
+
+    @Test
+    void notEqualFilterExcludesMatchingMapValue() {
+        Value address = Value.newBuilder().setMapValue(MapValue.newBuilder()
+                .putFields("city", Value.newBuilder().setStringValue("Lisbon").build())
+                .putFields("zip", Value.newBuilder().setIntegerValue(1000).build())).build();
+        Value other = Value.newBuilder().setMapValue(MapValue.newBuilder()
+                .putFields("city", Value.newBuilder().setStringValue("Porto").build())
+                .putFields("zip", Value.newBuilder().setIntegerValue(1000).build())).build();
+        service.applyWrite(topLevelValueDocument("matching", "address", address), Instant.now());
+        service.applyWrite(topLevelValueDocument("different", "address", other), Instant.now());
+
+        List<StoredDocument> results = runTopLevelFilter("address",
+                StructuredQuery.FieldFilter.Operator.NOT_EQUAL, address);
+
+        assertEquals(List.of(DB + "/documents/customers/different"),
+                results.stream().map(StoredDocument::getName).toList());
+    }
+
+    @Test
+    void arrayUnionSkipsElementAlreadyPresent() {
+        String name = DB + "/documents/customers/union-string";
+        service.applyWrite(topLevelValueDocument("union-string", "tags", stringArray()), Instant.now());
+
+        service.applyWrite(appendMissing(name, "tags", Value.newBuilder().setStringValue("x").build()), Instant.now());
+        service.applyWrite(appendMissing(name, "tags", Value.newBuilder().setStringValue("x").build()), Instant.now());
+
+        StoredValue tags = service.getDocument(name).orElseThrow().getFields().get("tags");
+        assertEquals(1, tags.getArrayValue().size());
+    }
+
+    @Test
+    void arrayUnionSkipsMapElementAlreadyPresent() {
+        String name = DB + "/documents/customers/union-map";
+        Value entry = Value.newBuilder().setMapValue(MapValue.newBuilder()
+                .putFields("id", Value.newBuilder().setStringValue("x").build())).build();
+        service.applyWrite(topLevelValueDocument("union-map", "entries", Value.newBuilder()
+                .setArrayValue(ArrayValue.newBuilder().addValues(entry)).build()), Instant.now());
+
+        service.applyWrite(appendMissing(name, "entries", entry), Instant.now());
+
+        StoredValue entries = service.getDocument(name).orElseThrow().getFields().get("entries");
+        assertEquals(1, entries.getArrayValue().size());
+    }
+
+    @Test
+    void arrayUnionTreatsIntegerAndDoubleAsEqual() {
+        String name = DB + "/documents/customers/union-number";
+        service.applyWrite(topLevelValueDocument("union-number", "vals", Value.newBuilder()
+                .setArrayValue(ArrayValue.newBuilder().addValues(Value.newBuilder().setIntegerValue(3))).build()),
+                Instant.now());
+
+        service.applyWrite(appendMissing(name, "vals", Value.newBuilder().setDoubleValue(3.0).build()), Instant.now());
+
+        List<StoredValue> vals = service.getDocument(name).orElseThrow().getFields().get("vals").getArrayValue();
+        assertEquals(1, vals.size());
+        assertEquals("integer", vals.get(0).getType());
+        assertEquals(3L, vals.get(0).getIntegerValue());
+        assertTrue(vals.get(0).matchesEqual(StoredValue.fromProto(Value.newBuilder().setDoubleValue(3.0).build())));
+    }
+
+    @Test
+    void numericEqualityIsExactAcrossIntegerAndDouble() {
+        // 2^53 + 1 has no double representation; the nearest double is 2^53.
+        assertTrue(matches(integer(9007199254740992L), dbl(9007199254740992.0)));
+        assertTrue(matches(dbl(9007199254740992.0), integer(9007199254740992L)));
+        assertFalse(matches(integer(9007199254740993L), dbl(9007199254740992.0)));
+        assertFalse(matches(dbl(9007199254740992.0), integer(9007199254740993L)));
+        assertFalse(matches(integer(Long.MAX_VALUE), dbl(9.223372036854775807E18)));
+        assertFalse(matches(integer(3), dbl(3.5)));
+    }
+
+    @Test
+    void numericEqualityHandlesSignedZeroNaNAndInfinity() {
+        assertTrue(matches(dbl(-0.0), dbl(0.0)));
+        assertTrue(matches(dbl(0.0), dbl(-0.0)));
+        assertTrue(matches(integer(0), dbl(-0.0)));
+        assertTrue(matches(dbl(-0.0), integer(0)));
+
+        // NaN matches only NaN.
+        assertTrue(matches(dbl(Double.NaN), dbl(Double.NaN)));
+        assertFalse(matches(dbl(Double.NaN), dbl(0.0)));
+        assertFalse(matches(dbl(0.0), dbl(Double.NaN)));
+        assertFalse(matches(integer(0), dbl(Double.NaN)));
+        assertFalse(matches(dbl(Double.NaN), integer(0)));
+
+        assertTrue(matches(dbl(Double.POSITIVE_INFINITY), dbl(Double.POSITIVE_INFINITY)));
+        assertFalse(matches(dbl(Double.POSITIVE_INFINITY), dbl(Double.NEGATIVE_INFINITY)));
+        assertFalse(matches(integer(Long.MAX_VALUE), dbl(Double.POSITIVE_INFINITY)));
+        assertFalse(matches(dbl(Double.POSITIVE_INFINITY), integer(Long.MAX_VALUE)));
+    }
+
+    @Test
+    void numericEdgeCasesApplyInsideArraysAndMaps() {
+        Value intArray = Value.newBuilder().setArrayValue(ArrayValue.newBuilder()
+                .addValues(integer(3)).addValues(integer(0))).build();
+        Value doubleArray = Value.newBuilder().setArrayValue(ArrayValue.newBuilder()
+                .addValues(dbl(3.0)).addValues(dbl(-0.0))).build();
+        Value nanArray = Value.newBuilder().setArrayValue(ArrayValue.newBuilder()
+                .addValues(dbl(Double.NaN))).build();
+        Value bigInt = Value.newBuilder().setMapValue(MapValue.newBuilder()
+                .putFields("n", integer(9007199254740993L))).build();
+        Value bigDouble = Value.newBuilder().setMapValue(MapValue.newBuilder()
+                .putFields("n", dbl(9007199254740992.0))).build();
+
+        assertTrue(matches(intArray, doubleArray));
+        assertTrue(matches(doubleArray, intArray));
+        assertTrue(matches(nanArray, nanArray));
+        assertFalse(matches(bigInt, bigDouble));
+        assertFalse(matches(bigDouble, bigInt));
+
+        service.applyWrite(topLevelValueDocument("ints", "vals", intArray), Instant.now());
+        service.applyWrite(topLevelValueDocument("big", "vals", bigInt), Instant.now());
+        assertEquals(List.of(DB + "/documents/customers/ints"),
+                runTopLevelFilter("vals", StructuredQuery.FieldFilter.Operator.EQUAL, doubleArray)
+                        .stream().map(StoredDocument::getName).toList());
+        assertEquals(List.of(),
+                runTopLevelFilter("vals", StructuredQuery.FieldFilter.Operator.EQUAL, bigDouble)
+                        .stream().map(StoredDocument::getName).toList());
+    }
+
+    private static boolean matches(Value stored, Value query) {
+        return StoredValue.fromProto(stored).matchesEqual(query);
+    }
+
+    private static Value integer(long value) {
+        return Value.newBuilder().setIntegerValue(value).build();
+    }
+
+    private static Value dbl(double value) {
+        return Value.newBuilder().setDoubleValue(value).build();
+    }
+
+    @Test
+    void arrayRemoveRemovesMatchingMapElement() {
+        String name = DB + "/documents/customers/remove-map";
+        Value first = Value.newBuilder().setMapValue(MapValue.newBuilder()
+                .putFields("id", Value.newBuilder().setStringValue("a").build())).build();
+        Value second = Value.newBuilder().setMapValue(MapValue.newBuilder()
+                .putFields("id", Value.newBuilder().setStringValue("b").build())).build();
+        service.applyWrite(topLevelValueDocument("remove-map", "entries", Value.newBuilder()
+                .setArrayValue(ArrayValue.newBuilder().addValues(first).addValues(second)).build()), Instant.now());
+
+        service.applyWrite(Write.newBuilder()
+                .setTransform(DocumentTransform.newBuilder()
+                        .setDocument(name)
+                        .addFieldTransforms(DocumentTransform.FieldTransform.newBuilder()
+                                .setFieldPath("entries")
+                                .setRemoveAllFromArray(ArrayValue.newBuilder().addValues(first))))
+                .build(), Instant.now());
+
+        StoredValue entries = service.getDocument(name).orElseThrow().getFields().get("entries");
+        assertEquals(1, entries.getArrayValue().size());
+        assertEquals("b", entries.getArrayValue().get(0).getMapValue().get("id").getStringValue());
+    }
+
+    private Value stringArray(String... values) {
+        ArrayValue.Builder array = ArrayValue.newBuilder();
+        for (String value : values) {
+            array.addValues(Value.newBuilder().setStringValue(value));
+        }
+        return Value.newBuilder().setArrayValue(array).build();
+    }
+
+    private Write appendMissing(String name, String fieldPath, Value element) {
+        return Write.newBuilder()
+                .setTransform(DocumentTransform.newBuilder()
+                        .setDocument(name)
+                        .addFieldTransforms(DocumentTransform.FieldTransform.newBuilder()
+                                .setFieldPath(fieldPath)
+                                .setAppendMissingElements(ArrayValue.newBuilder().addValues(element))))
+                .build();
     }
 
     private List<StoredDocument> runTopLevelFilter(String fieldPath,
@@ -704,5 +908,192 @@ class FirestoreServiceTest {
         service.commit(List.of(upsert(DOC_NAME, "a", "2")), tx, Instant.now());
         assertEquals("2", service.getDocument(DOC_NAME).orElseThrow()
                 .getFields().get("a").getStringValue());
+    }
+
+    @Test
+    void updateMaskWithDottedPathUpdatesOnlyThatNestedField() {
+        service.applyWrite(Write.newBuilder().setUpdate(profileDocument()).build(), Instant.now());
+
+        service.applyWrite(Write.newBuilder()
+                .setUpdate(Document.newBuilder().setName(DOC_NAME)
+                        .putFields("m", mapOf("x", intValue(9))))
+                .setUpdateMask(DocumentMask.newBuilder().addFieldPaths("m.x"))
+                .build(), Instant.now());
+
+        StoredDocument stored = service.getDocument(DOC_NAME).orElseThrow();
+        assertEquals(9L, stored.getFields().get("m").getMapValue().get("x").getIntegerValue());
+        assertEquals(2L, stored.getFields().get("m").getMapValue().get("y").getIntegerValue());
+        assertEquals("k", stored.getFields().get("keep").getStringValue());
+    }
+
+    @Test
+    void updateMaskMergesNewNestedFieldAlongsideSiblings() {
+        service.applyWrite(Write.newBuilder().setUpdate(profileDocument()).build(), Instant.now());
+
+        service.applyWrite(Write.newBuilder()
+                .setUpdate(Document.newBuilder().setName(DOC_NAME)
+                        .putFields("m", mapOf("z", intValue(3))))
+                .setUpdateMask(DocumentMask.newBuilder().addFieldPaths("m.z"))
+                .build(), Instant.now());
+
+        assertEquals(Set.of("x", "y", "z"), service.getDocument(DOC_NAME).orElseThrow()
+                .getFields().get("m").getMapValue().keySet());
+    }
+
+    @Test
+    void updateMaskDeletesNestedFieldAbsentFromInput() {
+        service.applyWrite(Write.newBuilder().setUpdate(profileDocument()).build(), Instant.now());
+
+        service.applyWrite(Write.newBuilder()
+                .setUpdate(Document.newBuilder().setName(DOC_NAME))
+                .setUpdateMask(DocumentMask.newBuilder().addFieldPaths("m.x"))
+                .build(), Instant.now());
+
+        assertEquals(Set.of("y"), service.getDocument(DOC_NAME).orElseThrow()
+                .getFields().get("m").getMapValue().keySet());
+    }
+
+    @Test
+    void updateMaskWithQuotedSegmentAddressesLiteralKey() {
+        service.applyWrite(Write.newBuilder().setUpdate(profileDocument()).build(), Instant.now());
+
+        service.applyWrite(Write.newBuilder()
+                .setUpdate(Document.newBuilder().setName(DOC_NAME)
+                        .putFields("m", mapOf("a.b", intValue(5))))
+                .setUpdateMask(DocumentMask.newBuilder().addFieldPaths("m.`a.b`"))
+                .build(), Instant.now());
+
+        assertEquals(5L, service.getDocument(DOC_NAME).orElseThrow()
+                .getFields().get("m").getMapValue().get("a.b").getIntegerValue());
+    }
+
+    @Test
+    void emptyUpdateMaskWithTransformKeepsExistingFields() {
+        service.applyWrite(Write.newBuilder().setUpdate(profileDocument()).build(), Instant.now());
+
+        service.applyWrite(Write.newBuilder()
+                .setUpdate(Document.newBuilder().setName(DOC_NAME))
+                .setUpdateMask(DocumentMask.getDefaultInstance())
+                .addUpdateTransforms(DocumentTransform.FieldTransform.newBuilder()
+                        .setFieldPath("a").setIncrement(intValue(5)))
+                .build(), Instant.now());
+
+        StoredDocument stored = service.getDocument(DOC_NAME).orElseThrow();
+        assertEquals(6L, stored.getFields().get("a").getIntegerValue());
+        assertEquals("k", stored.getFields().get("keep").getStringValue());
+        assertEquals(Set.of("x", "y"), stored.getFields().get("m").getMapValue().keySet());
+    }
+
+    @Test
+    void transformAtDottedPathIncrementsNestedField() {
+        service.applyWrite(Write.newBuilder().setUpdate(profileDocument()).build(), Instant.now());
+
+        service.applyWrite(Write.newBuilder()
+                .setUpdate(Document.newBuilder().setName(DOC_NAME))
+                .setUpdateMask(DocumentMask.getDefaultInstance())
+                .addUpdateTransforms(DocumentTransform.FieldTransform.newBuilder()
+                        .setFieldPath("m.x").setIncrement(intValue(4)))
+                .build(), Instant.now());
+
+        StoredDocument stored = service.getDocument(DOC_NAME).orElseThrow();
+        assertEquals(5L, stored.getFields().get("m").getMapValue().get("x").getIntegerValue());
+        assertEquals(2L, stored.getFields().get("m").getMapValue().get("y").getIntegerValue());
+    }
+
+    @Test
+    void splitFieldPathUnquotesBacktickSegments() {
+        assertEquals(List.of("a", "b.c", "d`e"), FirestoreService.splitFieldPath("a.`b.c`.`d\\`e`"));
+    }
+
+    @Test
+    void transformsAtDottedPathAppendAndRemoveNestedArrayElements() {
+        service.applyWrite(Write.newBuilder().setUpdate(profileDocument()).build(), Instant.now());
+        Value tags = Value.newBuilder().setArrayValue(ArrayValue.newBuilder()
+                .addValues(intValue(1)).addValues(intValue(2))).build();
+
+        service.applyWrite(Write.newBuilder()
+                .setUpdate(Document.newBuilder().setName(DOC_NAME))
+                .setUpdateMask(DocumentMask.getDefaultInstance())
+                .addUpdateTransforms(DocumentTransform.FieldTransform.newBuilder()
+                        .setFieldPath("m.tags").setAppendMissingElements(tags.getArrayValue()))
+                .addUpdateTransforms(DocumentTransform.FieldTransform.newBuilder()
+                        .setFieldPath("m.tags").setRemoveAllFromArray(ArrayValue.newBuilder()
+                                .addValues(intValue(1))))
+                .build(), Instant.now());
+
+        StoredDocument stored = service.getDocument(DOC_NAME).orElseThrow();
+        List<StoredValue> remaining = stored.getFields().get("m").getMapValue().get("tags").getArrayValue();
+        assertEquals(List.of(2L), remaining.stream().map(StoredValue::getIntegerValue).toList());
+        assertEquals(1L, stored.getFields().get("m").getMapValue().get("x").getIntegerValue());
+    }
+
+    @Test
+    void queryOnQuotedFieldPathFindsValueWrittenThroughQuotedMask() {
+        String name = DB + "/documents/customers/c1";
+        service.applyWrite(Write.newBuilder()
+                .setUpdate(Document.newBuilder().setName(name)
+                        .putFields("m", mapOf("a.b", intValue(5))))
+                .setUpdateMask(DocumentMask.newBuilder().addFieldPaths("m.`a.b`"))
+                .build(), Instant.now());
+
+        assertEquals(1, runNestedFilter("m.`a.b`", StructuredQuery.FieldFilter.Operator.EQUAL,
+                intValue(5)).size());
+    }
+
+    @Test
+    void malformedFieldPathsAreRejected() {
+        for (String path : List.of("m..x", ".m", "m.", "m.`x", "m.`x\\", "m.``")) {
+            GcpException ex = assertThrows(GcpException.class,
+                    () -> FirestoreService.splitFieldPath(path), path);
+            assertEquals(Status.Code.INVALID_ARGUMENT, ex.getGrpcCode(), path);
+        }
+    }
+
+    @Test
+    void fieldPathsDeeperThanTwentySegmentsAreRejected() {
+        assertEquals(20, FirestoreService.splitFieldPath(String.join(".", "a".repeat(20).split(""))).size());
+
+        String tooDeep = String.join(".", "a".repeat(10_000).split(""));
+        GcpException ex = assertThrows(GcpException.class,
+                () -> service.applyWrite(Write.newBuilder()
+                        .setUpdate(Document.newBuilder().setName(DOC_NAME))
+                        .setUpdateMask(DocumentMask.newBuilder().addFieldPaths(tooDeep))
+                        .build(), Instant.now()));
+        assertEquals(Status.Code.INVALID_ARGUMENT, ex.getGrpcCode());
+    }
+
+    @Test
+    void commitWithMalformedFieldPathAppliesNoWrites() {
+        String other = DB + "/documents/users/bob";
+        Write malformed = Write.newBuilder()
+                .setUpdate(Document.newBuilder().setName(DOC_NAME))
+                .setUpdateMask(DocumentMask.newBuilder().addFieldPaths("m..x"))
+                .build();
+
+        assertThrows(GcpException.class, () -> service.commit(
+                List.of(upsert(other, "b", "1"), malformed), new byte[0], Instant.now()));
+        assertTrue(service.getDocument(other).isEmpty());
+        assertTrue(service.getDocument(DOC_NAME).isEmpty());
+    }
+
+    private static Document profileDocument() {
+        return Document.newBuilder()
+                .setName(DOC_NAME)
+                .putFields("a", intValue(1))
+                .putFields("keep", Value.newBuilder().setStringValue("k").build())
+                .putFields("m", mapOf("x", intValue(1), "y", intValue(2)))
+                .build();
+    }
+
+    private static Value intValue(long value) {
+        return Value.newBuilder().setIntegerValue(value).build();
+    }
+
+    private static Value mapOf(Object... keysAndValues) {
+        MapValue.Builder map = MapValue.newBuilder();
+        for (int i = 0; i < keysAndValues.length; i += 2) {
+            map.putFields((String) keysAndValues[i], (Value) keysAndValues[i + 1]);
+        }
+        return Value.newBuilder().setMapValue(map).build();
     }
 }

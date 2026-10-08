@@ -1,15 +1,57 @@
 package io.floci.gcp.services.compute;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import io.floci.gcp.core.storage.ProjectAwareStorageBackend;
+import io.floci.gcp.core.storage.StorageFactory;
+import io.floci.gcp.services.compute.model.ComputeProject;
 import io.quarkus.test.junit.QuarkusTest;
 import io.restassured.response.Response;
+import jakarta.inject.Inject;
 import org.junit.jupiter.api.Test;
 import java.util.Map;
 import java.util.UUID;
 import static io.restassured.RestAssured.given;
+import static org.hamcrest.Matchers.equalTo;
 import static org.junit.jupiter.api.Assertions.*;
 
 @QuarkusTest
 class ComputeIntegrationTest extends ComputeTestSupport {
+    @Inject StorageFactory storage;
+
+    @Test void regionsAndZonesServeTheFullLocationCatalog() {
+        String root = root();
+        var regions = given().get(root + "/regions").then().statusCode(200).extract().jsonPath();
+        assertEquals(43, regions.getList("items.name").size());
+        assertEquals(java.util.List.of("https://www.googleapis.com" + root + "/zones/europe-west1-b",
+                        "https://www.googleapis.com" + root + "/zones/europe-west1-c",
+                        "https://www.googleapis.com" + root + "/zones/europe-west1-d"),
+                given().get(root + "/regions/europe-west1").then().statusCode(200).extract().jsonPath().getList("zones", String.class));
+        var zones = given().get(root + "/zones").then().statusCode(200).extract().jsonPath().getList("items.name", String.class);
+        assertEquals(130, zones.size());
+        assertTrue(zones.contains("us-central1-f"));
+        assertFalse(zones.contains("europe-west1-a"));
+        given().get(root + "/zones/asia-northeast1-a/diskTypes").then().statusCode(200);
+        given().get(root + "/zones/europe-west1-a/diskTypes").then().statusCode(404);
+        given().contentType("application/json").body(Map.of("name", "legacy-zone-disk"))
+                .post(root + "/zones/europe-west1-a/disks").then().statusCode(404);
+        given().get(root + "/regions/mars-north1/subnetworks").then().statusCode(404);
+    }
+
+    @Test @SuppressWarnings("unchecked")
+    void storedResourcesKeepAnUncataloguedZoneReadableButNotWritable() {
+        String project = "compute-" + UUID.randomUUID(), root = "/compute/v1/projects/" + project;
+        var store = (ProjectAwareStorageBackend<ComputeProject>) storage.<ComputeProject>create("compute", "compute.json",
+                new TypeReference<Map<String, ComputeProject>>() {});
+        ComputeProject state = new ComputeProject();
+        state.resources.put("zones/europe-west1-a/disks/legacy",
+                JsonNodeFactory.instance.objectNode().put("kind", "compute#disk").put("name", "legacy"));
+        store.putForProject(project, "state", state);
+
+        given().get(root + "/zones/europe-west1-a/disks/legacy").then().statusCode(200).body("name", equalTo("legacy"));
+        post(root + "/zones/europe-west1-a/disks", Map.of("name", "fresh")).then().statusCode(404);
+    }
+
     @Test void diskTypeZonesAreUrlsWhileOtherCatalogsUseZoneNames() {
         for (String zone : java.util.List.of("us-central1-a", "europe-west1-b")) {
             String root = root(), catalog = root + "/zones/" + zone;

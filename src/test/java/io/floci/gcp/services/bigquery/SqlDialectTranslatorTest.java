@@ -289,6 +289,9 @@ class SqlDialectTranslatorTest {
         assertEquals("SELECT date_diff('day', b, a) AS d", sql("SELECT DATE_DIFF(a, b, DAY) AS d"));
         assertEquals("SELECT CAST(date_trunc('month', d) AS DATE) AS m", sql("SELECT DATE_TRUNC(d, MONTH) AS m"));
         assertEquals("SELECT strftime(ts, '%Y') AS y", sql("SELECT FORMAT_TIMESTAMP('%Y', ts) AS y"));
+        assertEquals("SELECT strftime(d, '%Y-%m-%d %%F %m/%d/%y %H:%M') AS y",
+                sql("SELECT FORMAT_DATE('%F %%F %D %R', d) AS y"));
+        assertEquals("SELECT CAST(strptime(s, '%Y-%m-%d') AS DATE) AS y", sql("SELECT PARSE_DATE('%F', s) AS y"));
         assertEquals("SELECT (dayofweek(d) + 1) AS w", sql("SELECT EXTRACT(DAYOFWEEK FROM d) AS w"));
         assertEquals("SELECT regexp_extract(s, 'a(b)', 1) AS x", sql("SELECT REGEXP_EXTRACT(s, r'a(b)') AS x"));
         assertEquals("SELECT regexp_replace(s, 'a', 'b', 'g') AS x", sql("SELECT REGEXP_REPLACE(s, 'a', 'b') AS x"));

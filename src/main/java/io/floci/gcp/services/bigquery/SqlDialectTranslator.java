@@ -2171,12 +2171,13 @@ final class SqlDialectTranslator {
             case "DATE_TRUNC" -> args(a, 2, name, "CAST(date_trunc(" + DuckTypes.quoteLiteral(datePart(a.get(1)))
                     + ", " + at(a, 0) + ") AS DATE)");
             case "FORMAT_TIMESTAMP", "FORMAT_DATETIME", "FORMAT_DATE", "FORMAT_TIME" -> args(a, 2, name,
-                    "strftime(" + at(a, 1) + ", " + at(a, 0) + ")");
+                    "strftime(" + at(a, 1) + ", " + timeFormat(at(a, 0)) + ")");
             case "PARSE_TIMESTAMP" -> args(a, 2, name,
-                    "CAST(strptime(" + at(a, 1) + ", " + at(a, 0) + ") AS TIMESTAMPTZ)");
-            case "PARSE_DATETIME" -> args(a, 2, name, "strptime(" + at(a, 1) + ", " + at(a, 0) + ")");
+                    "CAST(strptime(" + at(a, 1) + ", " + timeFormat(at(a, 0)) + ") AS TIMESTAMPTZ)");
+            case "PARSE_DATETIME" -> args(a, 2, name,
+                    "strptime(" + at(a, 1) + ", " + timeFormat(at(a, 0)) + ")");
             case "PARSE_DATE" -> args(a, 2, name,
-                    "CAST(strptime(" + at(a, 1) + ", " + at(a, 0) + ") AS DATE)");
+                    "CAST(strptime(" + at(a, 1) + ", " + timeFormat(at(a, 0)) + ") AS DATE)");
             case "DATE" -> a.size() == 3 ? "make_date(" + String.join(", ", a) + ")"
                     : "CAST(" + at(a, 0) + " AS DATE)";
             case "DATETIME" -> "CAST(" + at(a, 0) + " AS TIMESTAMP)";
@@ -2235,6 +2236,33 @@ final class SqlDialectTranslator {
             throw invalidQuery("Missing function argument " + (index + 1));
         }
         return a.get(index).trim();
+    }
+
+    /**
+     * Expands the composite specifiers BigQuery accepts and DuckDB rejects (%F, %D, %R) in a literal
+     * format string. Escaped percent signs are kept, and non-literal formats are returned unchanged.
+     */
+    private static String timeFormat(String format) {
+        if (format.length() < 2 || format.charAt(0) != '\'' || format.charAt(format.length() - 1) != '\'') {
+            return format;
+        }
+        String value = format.substring(1, format.length() - 1).replace("''", "'");
+        StringBuilder out = new StringBuilder(value.length() + 16);
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c != '%' || i + 1 == value.length()) {
+                out.append(c);
+                continue;
+            }
+            char spec = value.charAt(++i);
+            out.append(switch (spec) {
+                case 'F' -> "%Y-%m-%d";
+                case 'D' -> "%m/%d/%y";
+                case 'R' -> "%H:%M";
+                default -> "%" + spec;
+            });
+        }
+        return DuckTypes.quoteLiteral(out.toString());
     }
 
     private static String datePart(String part) {

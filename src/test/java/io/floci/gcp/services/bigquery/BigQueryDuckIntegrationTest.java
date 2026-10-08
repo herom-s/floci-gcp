@@ -561,6 +561,17 @@ class BigQueryDuckIntegrationTest {
     }
 
     @Test
+    @Order(5)
+    void compositeFormatSpecifiersMatchBigQuery() {
+        query("""
+                {"query": "SELECT FORMAT_DATE('%F', DATE '2026-03-05') f, FORMAT_DATE('%D', DATE '2026-03-05') d, FORMAT_TIMESTAMP('%F %R', TIMESTAMP '2026-03-05 07:08:09') fr, FORMAT_TIMESTAMP('%F %T', TIMESTAMP '2026-03-05 07:08:09') ft, FORMAT_DATE('%%F', DATE '2026-03-05') escaped, PARSE_DATE('%F', '2026-03-05') parsed, PARSE_DATE('%D', '03/05/26') parsed_d", "useLegacySql": false}
+                """)
+                .then().statusCode(200)
+                .body("rows[0].f.v", equalTo(List.of("2026-03-05", "03/05/26", "2026-03-05 07:08", "2026-03-05 07:08:09",
+                        "%F", "2026-03-05", "2026-03-05")));
+    }
+
+    @Test
     @Order(6)
     void dryRunReturnsSchemaWithoutAJob() {
         query("""

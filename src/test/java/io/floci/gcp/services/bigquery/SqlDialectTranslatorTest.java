@@ -160,6 +160,10 @@ class SqlDialectTranslatorTest {
         assertEquals("SELECT (CASE WHEN x THEN 1 ELSE 2 END) AS c", sql("SELECT IF(x, 1, 2) AS c"));
         assertEquals("SELECT date_diff('day', b, a) AS d", sql("SELECT DATE_DIFF(a, b, DAY) AS d"));
         assertEquals("SELECT CAST(date_trunc('month', d) AS DATE) AS m", sql("SELECT DATE_TRUNC(d, MONTH) AS m"));
+        assertEquals("SELECT CAST(CAST('2026-03-01' AS DATE) + INTERVAL 2 DAY AS DATE) AS m",
+                sql("SELECT DATE_ADD('2026-03-01', INTERVAL 2 DAY) AS m"));
+        assertEquals("SELECT date_trunc('day', CAST('it''s' AS TIMESTAMPTZ)) AS m, CAST(s || 'x' + INTERVAL 1 DAY AS DATE) AS n",
+                sql("SELECT TIMESTAMP_TRUNC('it\\'s', DAY) AS m, DATE_ADD(s || 'x', INTERVAL 1 DAY) AS n"));
         assertEquals("SELECT strftime(ts, '%Y') AS y", sql("SELECT FORMAT_TIMESTAMP('%Y', ts) AS y"));
         assertEquals("SELECT (dayofweek(d) + 1) AS w", sql("SELECT EXTRACT(DAYOFWEEK FROM d) AS w"));
         assertEquals("SELECT regexp_extract(s, 'a(b)', 1) AS x", sql("SELECT REGEXP_EXTRACT(s, r'a(b)') AS x"));

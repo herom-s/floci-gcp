@@ -1537,18 +1537,21 @@ final class SqlDialectTranslator {
             case "TIMESTAMP_MILLIS" -> "make_timestamptz(CAST(" + at(a, 0) + " AS BIGINT) * 1000)";
             case "TIMESTAMP_MICROS" -> "make_timestamptz(CAST(" + at(a, 0) + " AS BIGINT))";
             case "TIMESTAMP_ADD", "DATETIME_ADD", "TIME_ADD" -> args(a, 2, name,
-                    "(" + at(a, 0) + " + " + at(a, 1) + ")");
+                    "(" + temporalOperand(at(a, 0), name) + " + " + at(a, 1) + ")");
             case "TIMESTAMP_SUB", "DATETIME_SUB", "TIME_SUB" -> args(a, 2, name,
-                    "(" + at(a, 0) + " - " + at(a, 1) + ")");
-            case "DATE_ADD" -> args(a, 2, name, "CAST(" + at(a, 0) + " + " + at(a, 1) + " AS DATE)");
-            case "DATE_SUB" -> args(a, 2, name, "CAST(" + at(a, 0) + " - " + at(a, 1) + " AS DATE)");
+                    "(" + temporalOperand(at(a, 0), name) + " - " + at(a, 1) + ")");
+            case "DATE_ADD" -> args(a, 2, name,
+                    "CAST(" + temporalOperand(at(a, 0), name) + " + " + at(a, 1) + " AS DATE)");
+            case "DATE_SUB" -> args(a, 2, name,
+                    "CAST(" + temporalOperand(at(a, 0), name) + " - " + at(a, 1) + " AS DATE)");
             case "TIMESTAMP_DIFF", "DATETIME_DIFF", "DATE_DIFF", "TIME_DIFF" -> args(a, 3, name,
-                    "date_diff(" + DuckTypes.quoteLiteral(datePart(a.get(2))) + ", " + at(a, 1) + ", "
-                            + at(a, 0) + ")");
+                    "date_diff(" + DuckTypes.quoteLiteral(datePart(a.get(2))) + ", "
+                            + temporalOperand(at(a, 1), name) + ", " + temporalOperand(at(a, 0), name) + ")");
             case "TIMESTAMP_TRUNC", "DATETIME_TRUNC" -> args(a, 2, name,
-                    "date_trunc(" + DuckTypes.quoteLiteral(datePart(a.get(1))) + ", " + at(a, 0) + ")");
+                    "date_trunc(" + DuckTypes.quoteLiteral(datePart(a.get(1))) + ", "
+                            + temporalOperand(at(a, 0), name) + ")");
             case "DATE_TRUNC" -> args(a, 2, name, "CAST(date_trunc(" + DuckTypes.quoteLiteral(datePart(a.get(1)))
-                    + ", " + at(a, 0) + ") AS DATE)");
+                    + ", " + temporalOperand(at(a, 0), name) + ") AS DATE)");
             case "FORMAT_TIMESTAMP", "FORMAT_DATETIME", "FORMAT_DATE", "FORMAT_TIME" -> args(a, 2, name,
                     "strftime(" + at(a, 1) + ", " + at(a, 0) + ")");
             case "PARSE_TIMESTAMP" -> args(a, 2, name,
@@ -1576,6 +1579,48 @@ final class SqlDialectTranslator {
             throw invalidQuery("Missing function argument " + (index + 1));
         }
         return a.get(index).trim();
+    }
+
+    /**
+     * BigQuery coerces a STRING literal or STRING parameter passed to a date/time function to the
+     * function's type ({@code DATE_ADD(@d, INTERVAL 1 DAY)} with {@code @d} a STRING). DuckDB cannot
+     * pick an overload for a string plus an interval, so such an operand gets an explicit cast.
+     */
+    private static String temporalOperand(String operand, String function) {
+        String literal = operand;
+        if (operand.startsWith("CAST(") && operand.endsWith(" AS VARCHAR)")) {
+            literal = operand.substring("CAST(".length(), operand.length() - " AS VARCHAR)".length());
+        }
+        if (!isStringLiteral(literal)) {
+            return operand;
+        }
+        String type;
+        if (function.startsWith("DATE_")) {
+            type = "DATE";
+        } else if (function.startsWith("DATETIME_")) {
+            type = "TIMESTAMP";
+        } else if (function.startsWith("TIMESTAMP_")) {
+            type = "TIMESTAMPTZ";
+        } else {
+            type = "TIME";
+        }
+        return "CAST(" + literal + " AS " + type + ")";
+    }
+
+    /** True for exactly one single-quoted SQL string literal, with quotes escaped by doubling. */
+    private static boolean isStringLiteral(String sql) {
+        if (sql.length() < 2 || sql.charAt(0) != '\'' || sql.charAt(sql.length() - 1) != '\'') {
+            return false;
+        }
+        for (int i = 1; i < sql.length() - 1; i++) {
+            if (sql.charAt(i) == '\'') {
+                if (sql.charAt(i + 1) != '\'' || i + 1 == sql.length() - 1) {
+                    return false;
+                }
+                i++;
+            }
+        }
+        return true;
     }
 
     private static String datePart(String part) {

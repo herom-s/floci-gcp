@@ -80,7 +80,7 @@ Notes for when these go up:
 
 Integration branch: `upstream/main` (merged 2026-10-08 at `362809b`, which brings #294, the Firestore nested update mask fix bob's `update_source` needs) plus every PR branch above and all 14 held fixes, merged. It is what the local `floci-gcp:local` image is built from (`docker build -f docker/Dockerfile -t floci-gcp:local .`). With it, bob-datahub-sync's dbt project builds 166/166 models and all of its `/ads/*` dashboard endpoints answer. Rebuild it from the branches; don't send it upstream.
 
-Status 2026-10-09: `local/all-fixes` is at `ced616f` and is behind. It is based on `upstream/main` `362809b`, so it lacks #335 as merged plus #358, #361 and #363 (main is now `87b4f26`), and it lacks #336's latest commit `0a8619d` (keywords after a dot in ARRAY_AGG). Merge `upstream/main` and the current PR branches before the next `floci-gcp:local` image build.
+Status 2026-10-09: up to date at `50101b7`. It has `upstream/main` `87b4f26` (so #335 as merged, #358, #361, #363), the current heads of #336 (`0a8619d`), #347 (`1c7515e`), #348, #349 and #356 (merged in for the first time), and all 14 held fixes; the subscripts fix is now the final `c8ce5ac` with its two CTAS regression tests. BigQuery, Firestore and Secret Manager tests: 425 passed. The `floci-gcp:local` image has not been rebuilt from it yet.
 
 ## Known, not fixed yet
 

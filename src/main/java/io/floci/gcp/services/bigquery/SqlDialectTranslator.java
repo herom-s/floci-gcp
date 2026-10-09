@@ -183,6 +183,8 @@ final class SqlDialectTranslator {
      * the end, so every subscript is rewritten: a {@code SAFE_} form to a 1-based index that is NULL out of
      * range, a plain form to a CASE that raises BigQuery's error. The brackets written here are RAW tokens,
      * so a rewritten subscript is not seen again; scanning resumes at the array, so nested ones are too.
+     * Only the DuckDB renderings run it, not {@link #prepare}: a CREATE TABLE/VIEW keeps its query as
+     * GoogleSQL text and translates it again when it runs, and this rewrite is not idempotent.
      */
     private void rewriteArraySubscripts() {
         int i = 0;

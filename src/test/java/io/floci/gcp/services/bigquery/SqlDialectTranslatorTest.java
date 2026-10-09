@@ -738,6 +738,13 @@ class SqlDialectTranslatorTest {
         invalid("SELECT * FROM ds.INFORMATION_SCHEMA.SCHEMATA");
     }
 
+    @Test
+    void createTableKeepsItsQuerySubscriptsAsGoogleSql() {
+        // The stored query is translated again when it runs, so it must not be rewritten here.
+        assertEquals("SELECT a[SAFE_OFFSET(0)] AS x FROM ds.s",
+                statement("CREATE TABLE ds.t AS SELECT a[SAFE_OFFSET(0)] AS x FROM ds.s").querySql().trim());
+    }
+
     private static Map<String, Object> param(String name, String type, String value) {
         return Map.of("name", name, "parameterType", Map.of("type", type), "parameterValue", Map.of("value", value));
     }

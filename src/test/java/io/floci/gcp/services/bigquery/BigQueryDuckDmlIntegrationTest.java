@@ -404,4 +404,12 @@ class BigQueryDuckDmlIntegrationTest {
                 "destinationTable", Map.of("tableId", "orphan"))).then().statusCode(200)
                 .body("status.errorResult.reason", equalTo("invalid"));
     }
+
+    @Test
+    @Order(4)
+    void ctasWithArraySubscripts() {
+        query("CREATE TABLE shop.subscripted AS SELECT [STRUCT('a' AS p)][SAFE_OFFSET(0)].p AS p, [10, 20][OFFSET(1)] AS o")
+                .then().statusCode(200);
+        org.junit.jupiter.api.Assertions.assertEquals(List.of(List.of("a", "20")), rows("SELECT p, o FROM shop.subscripted"));
+    }
 }

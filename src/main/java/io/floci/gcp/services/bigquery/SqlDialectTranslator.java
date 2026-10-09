@@ -2690,12 +2690,15 @@ final class SqlDialectTranslator {
                 depth++;
             } else if (t.isPunct(")") || t.isPunct("]")) {
                 depth--;
-            } else if (depth == 0 && (t.isKeyword("IGNORE") || t.isKeyword("RESPECT"))) {
+            } else if (depth > 0 || isPrecededByDot(k)) {
+                // A field name after a dot may be a keyword: `t.limit`, `t.ignore`.
+                continue;
+            } else if (t.isKeyword("IGNORE") || t.isKeyword("RESPECT")) {
                 int nulls = nextSignificant(k + 1, close);
                 if (nulls >= 0 && tokens.get(nulls).isKeyword("NULLS")) {
                     modifier = k;
                 }
-            } else if (depth == 0 && t.isKeyword("LIMIT")) {
+            } else if (t.isKeyword("LIMIT")) {
                 limit = k;
             }
         }
@@ -2709,21 +2712,50 @@ final class SqlDialectTranslator {
                     : "LIMIT in arguments is not supported on analytic functions");
         }
         int bodyEnd = limit >= 0 ? limit : close;
-        String body = modifier < 0 ? render(open + 1, bodyEnd).trim()
-                : (render(open + 1, modifier).trim() + " "
-                        + render(nextSignificant(modifier + 1, close) + 1, bodyEnd).trim()).trim();
-        String call = original + "(" + body + ")";
-        if (modifier >= 0 && tokens.get(modifier).isKeyword("IGNORE")) {
+        String call;
+        if (modifier < 0) {
+            call = original + "(" + render(open + 1, bodyEnd).trim() + ")";
+        } else {
+            // Each range is rendered once, in source order: rendering consumes positional parameters.
             int expressionStart = nextSignificant(open + 1, modifier);
             if (expressionStart >= 0 && tokens.get(expressionStart).isKeyword("DISTINCT")) {
                 expressionStart++;
             }
-            call += " FILTER (WHERE (" + render(expressionStart, modifier).trim() + ") IS NOT NULL)";
+            String distinct = render(open + 1, expressionStart).trim();
+            String expression = render(expressionStart, modifier).trim();
+            String rest = render(nextSignificant(modifier + 1, close) + 1, bodyEnd).trim();
+            String body = (distinct + " " + expression + " " + rest).trim();
+            call = original + "(" + body + ")";
+            if (tokens.get(modifier).isKeyword("IGNORE")) {
+                call += " FILTER (WHERE (" + expression + ") IS NOT NULL)";
+            }
         }
         if (limit >= 0) {
-            call = "list_slice(" + call + ", 1, " + render(limit + 1, close).trim() + ")";
+            call = "list_slice(" + call + ", 1, " + arrayAggLimit(limit, close) + ")";
         }
         return call;
+    }
+
+    /**
+     * The {@code LIMIT} of an {@code ARRAY_AGG}: BigQuery takes only a non-negative integer literal or a
+     * query parameter, and rejects a negative parameter value when the query runs.
+     */
+    private String arrayAggLimit(int limit, int close) {
+        List<Token> value = significant(limit + 1, close);
+        if (value.size() == 1 && value.getFirst().kind == Kind.NUMBER && value.getFirst().text.matches("\\d+")) {
+            return value.getFirst().text;
+        }
+        if (value.size() == 2 && value.getFirst().isPunct("-") && value.get(1).kind == Kind.NUMBER
+                && value.get(1).text.matches("\\d+")) {
+            throw invalidQuery("LIMIT expects a non-negative integer literal or parameter");
+        }
+        if (value.size() == 1 && (value.getFirst().kind == Kind.NAMED_PARAM
+                || value.getFirst().kind == Kind.POSITIONAL_PARAM)) {
+            String parameter = render(limit + 1, close).trim();
+            return "(CASE WHEN (" + parameter + ") < 0 THEN error('LIMIT value should not be negative') ELSE ("
+                    + parameter + ") END)";
+        }
+        throw invalidQuery("LIMIT expects an integer literal or parameter");
     }
 
     private List<String> arguments(int open, int close) {

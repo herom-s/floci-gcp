@@ -131,12 +131,11 @@ public class BigQueryInternalController {
                          @PathParam("datasetId") String datasetId,
                          @PathParam("tableId") String tableId) {
         Table table = service.getTable(projectId, datasetId, tableId);
+        TableSchema schema = table.getSchema();
         List<Map<String, Object>> rows = service.storedRows(projectId, datasetId, tableId);
-        TableSchema schema = service.getTable(projectId, datasetId, tableId).getSchema();
         StreamingOutput body = out -> {
             for (Map<String, Object> row : rows) {
-                Map<String, Object> formatted = RowCodec.formatForDuck(table.getSchema(), row);
-                out.write(mapper.writeValueAsBytes(RowCodec.stagingRow(schema, formatted)));
+                out.write(mapper.writeValueAsBytes(RowCodec.stagingRow(schema, row)));
                 out.write('\n');
             }
         };

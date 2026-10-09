@@ -3,17 +3,21 @@ package io.floci.gcp.services.bigquery;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.floci.gcp.core.common.GcpException;
 import io.floci.gcp.services.bigquery.model.ErrorProto;
+import io.floci.gcp.services.bigquery.model.TableCell;
 import io.floci.gcp.services.bigquery.model.TableFieldSchema;
 import io.floci.gcp.services.bigquery.model.TableSchema;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -63,7 +67,7 @@ class RowCodecTest {
         row.put("tags", null);
         row.put("name", null);
 
-        var cells = RowCodec.encodeRow(new TableSchema(List.of(tags, name)), row,
+        List<TableCell> cells = RowCodec.encodeRow(new TableSchema(List.of(tags, name)), row,
                 RowCodec.TimestampFormat.ISO8601_STRING).getF();
 
         assertEquals(List.of(), cells.get(0).getV());
@@ -231,7 +235,7 @@ class RowCodecTest {
         }
     }
     @Test
-    void formatForDuckNormalizesTimestampsAndPreservesOthers() {
+    void stagingRowNormalizesTimestampsAndPreservesOthers() {
         TableFieldSchema tsField = new TableFieldSchema();
         tsField.setName("ts");
         tsField.setType("TIMESTAMP");
@@ -252,14 +256,13 @@ class RowCodecTest {
 
         TableSchema schema = new TableSchema(List.of(tsField, strField, nestedField, repeatedField));
 
-        Map<String, Object> input = Map.of(
-                "ts", "2023-10-01 12:00 UTC",
-                "s", "hello",
-                "nested", Map.of("ts", "1704164645.5"),
-                "arr", List.of("2023-10-01 14:00+02:00", "not a date")
-        );
+        Map<String, Object> input = new HashMap<>();
+        input.put("ts", "2023-10-01 12:00 UTC");
+        input.put("s", "hello");
+        input.put("nested", Map.of("ts", "1704164645.5"));
+        input.put("arr", Arrays.asList("2023-10-01 14:00+02:00", null, "not a date"));
 
-        Map<String, Object> output = RowCodec.formatForDuck(schema, input);
+        Map<String, Object> output = RowCodec.stagingRow(schema, input);
 
         assertEquals("2023-10-01T12:00:00.000000Z", output.get("ts"));
         assertEquals("hello", output.get("s"));
@@ -271,6 +274,7 @@ class RowCodecTest {
         @SuppressWarnings("unchecked")
         List<Object> arr = (List<Object>) output.get("arr");
         assertEquals("2023-10-01T12:00:00.000000Z", arr.get(0));
-        assertEquals("not a date", arr.get(1)); // unparseable falls back to original text
+        assertNull(arr.get(1));
+        assertEquals("not a date", arr.get(2)); // unparseable falls back to original text
     }
 }

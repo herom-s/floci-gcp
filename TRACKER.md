@@ -2,7 +2,7 @@
 
 Personal record of my BigQuery fixes for floci-gcp: what went upstream, what is held, and the rules for sending. This branch (`notes/fix-tracker`) only holds this file; it is not meant to be merged anywhere.
 
-Last updated: 2026-10-07 (#335 approved; AGENTS.md checklist). Upstream base for new work: `floci-io/floci-gcp` `main` @ `5dabe8e` (0.10.0).
+Last updated: 2026-10-09 (#325 and #335 merged; #336 approved; #347 ready for review; issue #371 opened). Upstream base for new work: `floci-io/floci-gcp` `main` @ `87b4f26`.
 
 Most of these were found by running a real dbt-bigquery project (bob-datahub-sync, ~170 models) and its FastAPI dashboards against floci's DuckDB engine.
 
@@ -13,7 +13,8 @@ Most of these were found by running a real dbt-bigquery project (bob-datahub-syn
 - Branch off current `upstream/main` (rebase before sending); each PR gets its own issue with a repro.
 - Every behaviour claim is checked against real BigQuery first (sandbox project `herom-bq-sandbox-961172`; run `bq` with `CLOUDSDK_CORE_ACCOUNT=heromapp1@gmail.com`). The scripts and outputs live locally in `~/floci-json-evidence/`.
 - Follow floci-gcp's AGENTS.md code style (the maintainer asked for it on #335). Before every push, check the diff for: no `var` (write the explicit type, including for-loops and try-with-resources); no inline fully-qualified names (`java.util.Arrays.asList` -> import `Arrays`); imports alphabetical with `java.*`/`javax.*` last and no wildcard imports in `src/main`; no tabs; no em-dashes anywhere, PR descriptions and commit messages included; never an empty `catch`; JBoss `LOG.debugf(...)`-style logging; switch expressions; test names as camelCase sentences. Allowed commit types: `feat`, `fix`, `perf`, `docs`, `chore`.
-- **Held fixes below are pushed here for safekeeping only. No issue or PR until the open drafts (#336, #347, #348, #349) are merged and I decide to send them.**
+- Non-draft slots are full right now: #336 and #347. #348, #349 and #356 stay drafts until one of those merges.
+- **Held fixes below are pushed here for safekeeping only. No issue or PR until the open PRs (#336, #347, #348, #349, #356) are merged and I decide to send them.**
 
 ## Upstream PRs
 
@@ -23,13 +24,29 @@ Most of these were found by running a real dbt-bigquery project (bob-datahub-syn
 | [#308](https://github.com/floci-io/floci-gcp/pull/308) | [#306](https://github.com/floci-io/floci-gcp/issues/306) | `fix/bigquery-json-type` | return BigQuery type names from JSON_TYPE | merged 2026-10-04 |
 | [#317](https://github.com/floci-io/floci-gcp/pull/317) | none (related: #316) | `fix/bigquery-implicit-select-alias` | quote implicit select-list aliases | merged 2026-10-05 |
 | [#330](https://github.com/floci-io/floci-gcp/pull/330) | [#316](https://github.com/floci-io/floci-gcp/issues/316) | `fix/bigquery-offset-identifier` | treat offset as an ordinary name | merged 2026-10-06 |
-| [#325](https://github.com/floci-io/floci-gcp/pull/325) | none | `fix/bigquery-interval-expression` | accept expressions as interval step sizes | open, ready for review |
-| [#335](https://github.com/floci-io/floci-gcp/pull/335) | [#337](https://github.com/floci-io/floci-gcp/issues/337) | `fix/bigquery-null-repeated-as-empty` | return a NULL array as an empty array | **merged** 2026-10-09 (9f8a65a) |
+| [#325](https://github.com/floci-io/floci-gcp/pull/325) | none | `fix/bigquery-interval-expression` | accept expressions as interval step sizes | merged 2026-10-08 (4886f1b) |
+| [#335](https://github.com/floci-io/floci-gcp/pull/335) | [#337](https://github.com/floci-io/floci-gcp/issues/337) | `fix/bigquery-null-repeated-as-empty` | return a NULL array as an empty array | merged 2026-10-09 (9f8a65a); #337 closed |
 | [#336](https://github.com/floci-io/floci-gcp/pull/336) | [#338](https://github.com/floci-io/floci-gcp/issues/338) | `fix/bigquery-array-agg-ignore-nulls` | support null modifiers and LIMIT in ARRAY_AGG | **approved** by hectorvent (2026-10-09); rebased after #335 (keep both tests), head 0a8619d (Greptile P1: keywords after a dot such as `t.limit` read as clauses, fixed with tests); follow-up split out as issue #371 |
 | [#347](https://github.com/floci-io/floci-gcp/pull/347) | [#344](https://github.com/floci-io/floci-gcp/issues/344) | `fix/bigquery-ctas-parenthesized-query` | run queries wrapped in parentheses and CTEs inside them | ready for review (2026-10-09); rebased onto main, head 1c7515e; full suite 1983 tests, only EmbeddedDnsServerTest errors locally (WSL UDP, untouched) |
 | [#348](https://github.com/floci-io/floci-gcp/pull/348) | [#345](https://github.com/floci-io/floci-gcp/issues/345) | `fix/bigquery-ctas-destination-table` | report the DDL target table as the job destination | open, draft |
 | [#349](https://github.com/floci-io/floci-gcp/pull/349) | [#346](https://github.com/floci-io/floci-gcp/issues/346) | `fix/bigquery-merge-insert-source-columns` | resolve bare columns in MERGE NOT MATCHED clauses to the source | open, draft |
 | [#356](https://github.com/floci-io/floci-gcp/pull/356) | [#261](https://github.com/floci-io/floci-gcp/issues/261) (filed by hectorvent) | `fix/bigquery-duckdb-external-access` | stop queries from reading files and URLs through DuckDB | open, draft; claimed on the issue |
+
+## Issues I opened
+
+| Issue | Title | State | Fixed by |
+|---|---|---|---|
+| [#305](https://github.com/floci-io/floci-gcp/issues/305) | NDJSON load job rejects objects/arrays in JSON columns | closed 2026-10-05 | #307 |
+| [#306](https://github.com/floci-io/floci-gcp/issues/306) | JSON_TYPE returns DuckDB type names | closed 2026-10-04 | #308 |
+| [#316](https://github.com/floci-io/floci-gcp/issues/316) | select-list aliases that are DuckDB keywords fail | closed 2026-10-06 | #317, #330 |
+| [#337](https://github.com/floci-io/floci-gcp/issues/337) | a NULL array is returned as null instead of [] | closed 2026-10-09 | #335 |
+| [#338](https://github.com/floci-io/floci-gcp/issues/338) | ARRAY_AGG with IGNORE NULLS or RESPECT NULLS fails | open | #336 (approved) |
+| [#344](https://github.com/floci-io/floci-gcp/issues/344) | a query wrapped in parentheses fails; CTEs inside parentheses or subqueries read as tables | open | #347 (ready for review) |
+| [#345](https://github.com/floci-io/floci-gcp/issues/345) | DDL jobs have no configuration.query.destinationTable | open | #348 (draft) |
+| [#346](https://github.com/floci-io/floci-gcp/issues/346) | bare columns in MERGE WHEN NOT MATCHED fail as ambiguous | open | #349 (draft) |
+| [#371](https://github.com/floci-io/floci-gcp/issues/371) | arrays with NULL elements are returned instead of failing the query | open, opened 2026-10-09 at hectorvent's request on #336 | none yet |
+
+Also: [#261](https://github.com/floci-io/floci-gcp/issues/261) (filed by hectorvent, claimed by me) is fixed by draft #356.
 
 ## Held fixes (pushed to this fork, no issue or PR yet)
 
@@ -62,6 +79,8 @@ Notes for when these go up:
 ## `local/all-fixes`
 
 Integration branch: `upstream/main` (merged 2026-10-08 at `362809b`, which brings #294, the Firestore nested update mask fix bob's `update_source` needs) plus every PR branch above and all 14 held fixes, merged. It is what the local `floci-gcp:local` image is built from (`docker build -f docker/Dockerfile -t floci-gcp:local .`). With it, bob-datahub-sync's dbt project builds 166/166 models and all of its `/ads/*` dashboard endpoints answer. Rebuild it from the branches; don't send it upstream.
+
+Status 2026-10-09: `local/all-fixes` is at `ced616f` and is behind. It is based on `upstream/main` `362809b`, so it lacks #335 as merged plus #358, #361 and #363 (main is now `87b4f26`), and it lacks #336's latest commit `0a8619d` (keywords after a dot in ARRAY_AGG). Merge `upstream/main` and the current PR branches before the next `floci-gcp:local` image build.
 
 ## Known, not fixed yet
 

@@ -24,8 +24,8 @@ Most of these were found by running a real dbt-bigquery project (bob-datahub-syn
 | [#317](https://github.com/floci-io/floci-gcp/pull/317) | none (related: #316) | `fix/bigquery-implicit-select-alias` | quote implicit select-list aliases | merged 2026-10-05 |
 | [#330](https://github.com/floci-io/floci-gcp/pull/330) | [#316](https://github.com/floci-io/floci-gcp/issues/316) | `fix/bigquery-offset-identifier` | treat offset as an ordinary name | merged 2026-10-06 |
 | [#325](https://github.com/floci-io/floci-gcp/pull/325) | none | `fix/bigquery-interval-expression` | accept expressions as interval step sizes | open, ready for review |
-| [#335](https://github.com/floci-io/floci-gcp/pull/335) | [#337](https://github.com/floci-io/floci-gcp/issues/337) | `fix/bigquery-null-repeated-as-empty` | return a NULL array as an empty array | **approved** by avison9 (2026-10-07); `var` -> `List<TableCell>` fixed in 6d5e089, draft note removed |
-| [#336](https://github.com/floci-io/floci-gcp/pull/336) | [#338](https://github.com/floci-io/floci-gcp/issues/338) | `fix/bigquery-array-agg-ignore-nulls` | support null modifiers and LIMIT in ARRAY_AGG | open, draft |
+| [#335](https://github.com/floci-io/floci-gcp/pull/335) | [#337](https://github.com/floci-io/floci-gcp/issues/337) | `fix/bigquery-null-repeated-as-empty` | return a NULL array as an empty array | **merged** 2026-10-09 (9f8a65a) |
+| [#336](https://github.com/floci-io/floci-gcp/pull/336) | [#338](https://github.com/floci-io/floci-gcp/issues/338) | `fix/bigquery-array-agg-ignore-nulls` | support null modifiers and LIMIT in ARRAY_AGG | **approved** by hectorvent (2026-10-09); rebased after #335 (keep both tests), head 9a0d93f; follow-up split out as issue #371 |
 | [#347](https://github.com/floci-io/floci-gcp/pull/347) | [#344](https://github.com/floci-io/floci-gcp/issues/344) | `fix/bigquery-ctas-parenthesized-query` | run queries wrapped in parentheses and CTEs inside them | open, draft |
 | [#348](https://github.com/floci-io/floci-gcp/pull/348) | [#345](https://github.com/floci-io/floci-gcp/issues/345) | `fix/bigquery-ctas-destination-table` | report the DDL target table as the job destination | open, draft |
 | [#349](https://github.com/floci-io/floci-gcp/pull/349) | [#346](https://github.com/floci-io/floci-gcp/issues/346) | `fix/bigquery-merge-insert-source-columns` | resolve bare columns in MERGE NOT MATCHED clauses to the source | open, draft |
@@ -64,6 +64,8 @@ Notes for when these go up:
 Integration branch: `upstream/main` (merged 2026-10-08 at `362809b`, which brings #294, the Firestore nested update mask fix bob's `update_source` needs) plus every PR branch above and all 14 held fixes, merged. It is what the local `floci-gcp:local` image is built from (`docker build -f docker/Dockerfile -t floci-gcp:local .`). With it, bob-datahub-sync's dbt project builds 166/166 models and all of its `/ads/*` dashboard endpoints answer. Rebuild it from the branches; don't send it upstream.
 
 ## Known, not fixed yet
+
+- [#371](https://github.com/floci-io/floci-gcp/issues/371) (opened 2026-10-09, asked for by hectorvent on #336): a result row with an array that has a NULL element must fail the query (`Array cannot have a null element; error in writing field a`); floci returns the NULL element. Applies to any array in the output, not only `ARRAY_AGG`. Evidence `array-agg-null-element-*.json`, `array-literal-null-element-output.json`, `array-agg-struct-null-field-output.json`.
 
 - PARSE_* with a format read from a column: DuckDB requires a constant strptime format and there is no per-row split for parsing. Literal and parameter formats work.
 - PARSE_* with elements DuckDB lacks (`%e`, `%k`, `%Q`, ...): only the composites are expanded for parsing.

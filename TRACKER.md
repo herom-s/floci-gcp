@@ -8,6 +8,7 @@ Most of these were found by running a real dbt-bigquery project (bob-datahub-syn
 
 ## Rules for sending
 
+- The sandbox project `herom-bq-sandbox-961172` has billing linked since 2026-10-13 (billing account `019C80-ADF43C-45891A`), so DML (`MERGE`, `INSERT`, `UPDATE`) runs there now; before that, DML failed with "DML queries are not allowed in the free tier".
 - Commits as `herom-s <45332114+herom-s@users.noreply.github.com>`, no AI co-author trailers, Conventional Commit titles.
 - At most 2 open non-draft PRs (repo rule). Anything beyond that goes up as a draft and is marked ready when a slot frees.
 - Branch off current `upstream/main` (rebase before sending); each PR gets its own issue with a repro.
@@ -29,7 +30,7 @@ Most of these were found by running a real dbt-bigquery project (bob-datahub-syn
 | [#336](https://github.com/floci-io/floci-gcp/pull/336) | [#338](https://github.com/floci-io/floci-gcp/issues/338) | `fix/bigquery-array-agg-ignore-nulls` | support null modifiers and LIMIT in ARRAY_AGG | merged 2026-10-13 (0a76f84); #338 closed; follow-up split out as issue #371 |
 | [#347](https://github.com/floci-io/floci-gcp/pull/347) | [#344](https://github.com/floci-io/floci-gcp/issues/344) | `fix/bigquery-ctas-parenthesized-query` | run queries wrapped in parentheses and CTEs inside them | merged 2026-10-11 (c96e936), approved by avison9 and hectorvent; #344 closed; follow-up issue #380 |
 | [#348](https://github.com/floci-io/floci-gcp/pull/348) | [#345](https://github.com/floci-io/floci-gcp/issues/345) | `fix/bigquery-ctas-destination-table` | report the DDL target table as the job destination | ready for review (2026-10-13); rebased onto 532679c, head 8146d72; `bigquery` package 284 tests pass, both changed tests fail without the fix; Greptile 5/5, no findings |
-| [#349](https://github.com/floci-io/floci-gcp/pull/349) | [#346](https://github.com/floci-io/floci-gcp/issues/346) | `fix/bigquery-merge-insert-source-columns` | resolve bare columns in MERGE NOT MATCHED clauses to the source | ready for review (2026-10-13); rebased onto 532679c, head 1eda437 (inline `Assertions.assertEquals` in the two new lines replaced with a static import); `bigquery` package 286 tests pass, both new tests fail without the fix |
+| [#349](https://github.com/floci-io/floci-gcp/pull/349) | [#346](https://github.com/floci-io/floci-gcp/issues/346) | `fix/bigquery-merge-insert-source-columns` | resolve bare columns in MERGE NOT MATCHED clauses to the source | ready for review (2026-10-13); rebased onto 532679c (head 1eda437, inline `Assertions.assertEquals` replaced with a static import), then 13be8b3 for Greptile's four P1s (typed literals and date parts read as columns, subqueries qualified with the outer source, the right side of `a < b` skipped, a `WHEN` inside `CASE` ending the clause); all four checked with real `MERGE`s on BigQuery (sandbox now has billing); `bigquery` package 288 tests pass, the new tests fail without each fix; replied on each finding |
 | [#356](https://github.com/floci-io/floci-gcp/pull/356) | [#261](https://github.com/floci-io/floci-gcp/issues/261) (filed by hectorvent) | `fix/bigquery-duckdb-external-access` | stop queries from reading files and URLs through DuckDB | open, draft; claimed on the issue |
 
 ## Issues I opened

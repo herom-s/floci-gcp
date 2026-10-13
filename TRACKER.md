@@ -2,7 +2,7 @@
 
 Personal record of my BigQuery fixes for floci-gcp: what went upstream, what is held, and the rules for sending. This branch (`notes/fix-tracker`) only holds this file; it is not meant to be merged anywhere.
 
-Last updated: 2026-10-13 (#347 merged 2026-10-11, #336 merged 2026-10-13; issue #380 opened as the follow-up avison9 asked for on #347; #348 and #349 rebased onto 532679c and marked ready for review). Upstream base for new work: `floci-io/floci-gcp` `main` @ `532679c`.
+Last updated: 2026-10-13 (#347 merged 2026-10-11, #336 merged 2026-10-13; #348 and #349 ready; fixes for #380 (draft PR #394) and #371 written; the 14 held fixes rebased onto 532679c, pushed, and each given an issue, #381 to #395). Upstream base for new work: `floci-io/floci-gcp` `main` @ `532679c`.
 
 Most of these were found by running a real dbt-bigquery project (bob-datahub-sync, ~170 models) and its FastAPI dashboards against floci's DuckDB engine.
 
@@ -10,12 +10,12 @@ Most of these were found by running a real dbt-bigquery project (bob-datahub-syn
 
 - The sandbox project `herom-bq-sandbox-961172` has billing linked since 2026-10-13 (billing account `019C80-ADF43C-45891A`), so DML (`MERGE`, `INSERT`, `UPDATE`) runs there now; before that, DML failed with "DML queries are not allowed in the free tier".
 - Commits as `herom-s <45332114+herom-s@users.noreply.github.com>`, no AI co-author trailers, Conventional Commit titles.
-- At most 2 open non-draft PRs (repo rule). Anything beyond that goes up as a draft and is marked ready when a slot frees.
+- PR limits (CONTRIBUTING.md): at most 4 open PRs per contributor, drafts included, and at most 2 of them ready for review. A bot closes a PR opened while 4 are already open. Open the next queued PR only when a slot frees; mark a draft ready only when a ready slot frees.
 - Branch off current `upstream/main` (rebase before sending); each PR gets its own issue with a repro.
 - Every behaviour claim is checked against real BigQuery first (sandbox project `herom-bq-sandbox-961172`; run `bq` with `CLOUDSDK_CORE_ACCOUNT=heromapp1@gmail.com`). The scripts and outputs live locally in `~/floci-json-evidence/`.
 - Follow floci-gcp's AGENTS.md code style (the maintainer asked for it on #335). Before every push, check the diff for: no `var` (write the explicit type, including for-loops and try-with-resources); no inline fully-qualified names (`java.util.Arrays.asList` -> import `Arrays`); imports alphabetical with `java.*`/`javax.*` last and no wildcard imports in `src/main`; no tabs; no em-dashes anywhere, PR descriptions and commit messages included; never an empty `catch`; JBoss `LOG.debugf(...)`-style logging; switch expressions; test names as camelCase sentences. Allowed commit types: `feat`, `fix`, `perf`, `docs`, `chore`.
-- Non-draft slots are full again: #348 and #349 (ready since 2026-10-13). #356 stays a draft until one of them merges; it needs a rebase first (conflicts with main).
-- **Held fixes below are pushed here for safekeeping only. No issue or PR until the open PRs (#348, #349, #356) are merged and I decide to send them.**
+- Non-draft slots are full: #348 and #349 (ready since 2026-10-13). #356 stays a draft until one of them merges; it needs a rebase first (conflicts with main).
+- Decision 2026-10-13: open an issue for every held fix now, and open their PRs one at a time as slots free, in the queue order below. The 4th slot went to the #380 fix (draft).
 
 ## Upstream PRs
 
@@ -31,6 +31,7 @@ Most of these were found by running a real dbt-bigquery project (bob-datahub-syn
 | [#347](https://github.com/floci-io/floci-gcp/pull/347) | [#344](https://github.com/floci-io/floci-gcp/issues/344) | `fix/bigquery-ctas-parenthesized-query` | run queries wrapped in parentheses and CTEs inside them | merged 2026-10-11 (c96e936), approved by avison9 and hectorvent; #344 closed; follow-up issue #380 |
 | [#348](https://github.com/floci-io/floci-gcp/pull/348) | [#345](https://github.com/floci-io/floci-gcp/issues/345) | `fix/bigquery-ctas-destination-table` | report the DDL target table as the job destination | ready for review (2026-10-13); rebased onto 532679c, head 8146d72; `bigquery` package 284 tests pass, both changed tests fail without the fix; Greptile 5/5, no findings |
 | [#349](https://github.com/floci-io/floci-gcp/pull/349) | [#346](https://github.com/floci-io/floci-gcp/issues/346) | `fix/bigquery-merge-insert-source-columns` | resolve bare columns in MERGE NOT MATCHED clauses to the source | ready for review (2026-10-13); rebased onto 532679c (head 1eda437, inline `Assertions.assertEquals` replaced with a static import), then 13be8b3 for Greptile's four P1s (typed literals and date parts read as columns, subqueries qualified with the outer source, the right side of `a < b` skipped, a `WHEN` inside `CASE` ending the clause), then 223e27d after the re-review still flagged dates (a date part that is not the last argument, `TIMESTAMP_TRUNC(ts, DAY, 'UTC')`, and the end of `INTERVAL '0-1' YEAR TO MONTH`), then 80e907c for Greptile's third pass (the date-part skip must hold only for the argument position that takes a part, so a column named `day` in `DATE_DIFF(d, day, DAY)` stays qualified), then a96eaf0 for Greptile's fourth pass (commas inside an array literal shifted that argument count); all checked with real `MERGE`s on BigQuery (sandbox now has billing); `bigquery` package 288 tests pass, the new tests fail without each fix; replied on each finding |
+| [#394](https://github.com/floci-io/floci-gcp/pull/394) | [#380](https://github.com/floci-io/floci-gcp/issues/380) | `fix/bigquery-subquery-anonymous-columns` | name anonymous subquery and CTE columns like BigQuery | open, draft (2026-10-13), head e04c3a9; takes the 4th PR slot; translator + Duck IT pass, both new tests fail without the fix |
 | [#356](https://github.com/floci-io/floci-gcp/pull/356) | [#261](https://github.com/floci-io/floci-gcp/issues/261) (filed by hectorvent) | `fix/bigquery-duckdb-external-access` | stop queries from reading files and URLs through DuckDB | open, draft; claimed on the issue |
 
 ## Issues I opened
@@ -45,51 +46,66 @@ Most of these were found by running a real dbt-bigquery project (bob-datahub-syn
 | [#344](https://github.com/floci-io/floci-gcp/issues/344) | a query wrapped in parentheses fails; CTEs inside parentheses or subqueries read as tables | closed 2026-10-11 | #347 |
 | [#345](https://github.com/floci-io/floci-gcp/issues/345) | DDL jobs have no configuration.query.destinationTable | open | #348 (ready for review) |
 | [#346](https://github.com/floci-io/floci-gcp/issues/346) | bare columns in MERGE WHEN NOT MATCHED fail as ambiguous | open | #349 (ready for review) |
-| [#371](https://github.com/floci-io/floci-gcp/issues/371) | arrays with NULL elements are returned instead of failing the query | open, opened 2026-10-09 at hectorvent's request on #336 | none yet |
-| [#380](https://github.com/floci-io/floci-gcp/issues/380) | anonymous columns of a subquery or CTE are named after their expression instead of `f0_` | open, opened 2026-10-13 at avison9's suggestion on #347 | none yet |
+| [#371](https://github.com/floci-io/floci-gcp/issues/371) | arrays with NULL elements are returned instead of failing the query | open, opened 2026-10-09 at hectorvent's request on #336 | `fix/bigquery-array-null-element` (queued, first in line for a PR) |
+| [#380](https://github.com/floci-io/floci-gcp/issues/380) | anonymous columns of a subquery or CTE are named after their expression instead of `f0_` | open, opened 2026-10-13 at avison9's suggestion on #347 | #394 (draft) |
+| [#381](https://github.com/floci-io/floci-gcp/issues/381) | OFFSET, ORDINAL and SAFE_ array subscripts are rejected | open, opened 2026-10-13 | `fix/bigquery-array-subscripts` (queued) |
+| [#382](https://github.com/floci-io/floci-gcp/issues/382) | window frames bounded by CURRENT ROW fail | open, opened 2026-10-13 | `fix/bigquery-window-frame-current-row` (queued) |
+| [#383](https://github.com/floci-io/floci-gcp/issues/383) | load jobs ignore or reject skipLeadingRows sent as a string | open, opened 2026-10-13 | `fix/bigquery-csv-skip-leading-rows` (queued) |
+| [#384](https://github.com/floci-io/floci-gcp/issues/384) | GENERATE_DATE_ARRAY is not supported | open, opened 2026-10-13 | `fix/bigquery-generate-date-array` (queued) |
+| [#385](https://github.com/floci-io/floci-gcp/issues/385) | .* on a STRUCT value is not expanded into its fields | open, opened 2026-10-13 | `fix/bigquery-struct-star-expansion` (queued) |
+| [#386](https://github.com/floci-io/floci-gcp/issues/386) | INITCAP is not supported | open, opened 2026-10-13 | `fix/bigquery-initcap` (queued) |
+| [#387](https://github.com/floci-io/floci-gcp/issues/387) | ANY_VALUE(x HAVING MAX y) and HAVING MIN are rejected | open, opened 2026-10-13 | `fix/bigquery-any-value-having` (queued) |
+| [#388](https://github.com/floci-io/floci-gcp/issues/388) | an implicit alias after NULL, TRUE or FALSE is not recognized | open, opened 2026-10-13 | `fix/bigquery-alias-after-null-keyword` (queued) |
+| [#389](https://github.com/floci-io/floci-gcp/issues/389) | IS [NOT] DISTINCT FROM fails | open, opened 2026-10-13 | `fix/bigquery-is-distinct-from` (queued) |
+| [#390](https://github.com/floci-io/floci-gcp/issues/390) | FORMAT_* and PARSE_* reject %F, %D, %R and other format elements, and formats read from a column | open, opened 2026-10-13 | `fix/bigquery-format-date-shorthands` (queued) |
+| [#391](https://github.com/floci-io/floci-gcp/issues/391) | a date-shaped STRING parameter can't be compared with DATE or TIMESTAMP | open, opened 2026-10-13 | `fix/bigquery-string-param-temporal-coercion` (queued) |
+| [#392](https://github.com/floci-io/floci-gcp/issues/392) | an implicit alias after a query parameter makes the query fail | open, opened 2026-10-13 | `fix/bigquery-alias-after-parameter` (queued) |
+| [#393](https://github.com/floci-io/floci-gcp/issues/393) | DATE_ADD and other date functions fail on STRING parameters | open, opened 2026-10-13 | `fix/bigquery-string-param-date-arithmetic` (queued) |
+| [#395](https://github.com/floci-io/floci-gcp/issues/395) | ALTER TABLE ... SET OPTIONS is rejected | open, opened 2026-10-13 | `fix/bigquery-alter-table-set-options` (queued) |
 
 Also: [#261](https://github.com/floci-io/floci-gcp/issues/261) (filed by hectorvent, claimed by me) is fixed by draft #356.
 
-## Held fixes (pushed to this fork, no issue or PR yet)
+## Fixes waiting for a PR slot (pushed to this fork, issue open)
 
-1 to 10 branch off `5dabe8e` (0.10.0) and need a rebase onto `upstream/main` before sending; 11 to 14 branch off `362809b` (`upstream/main`, 2026-10-08).
+All rebased onto `upstream/main` @ `532679c` on 2026-10-13 and pushed. For each: the changed test classes pass with the fix, and its new tests fail with `src/main` reverted to `main` (run with `/tmp/held_tests.sh`). Inline fully-qualified names from the 2026-10-07 audit are replaced with imports; a style check of each diff is clean. Open PRs in this order as slots free (see the rules above); each issue already says a fix is ready.
 
-| # | Branch | Commit | Title | What it fixes | Tests | Evidence |
+| Queue | Branch | Head | Issue | Title | Tests | Evidence |
 |---|---|---|---|---|---|---|
-| 1 | `fix/bigquery-array-subscripts` | `c8ce5ac` | translate OFFSET, ORDINAL and SAFE_ array subscripts | `arr[OFFSET(n)]`, `[SAFE_OFFSET(n)]`, `[ORDINAL(n)]`, `[SAFE_ORDINAL(n)]` and bare `[n]`, with BigQuery's 0/1-based and out-of-bounds semantics | unit 61, Duck IT 11, DML IT 13 | `gaps-2026-10-06.txt` |
-| 2 | `fix/bigquery-window-frame-current-row` | `7b0e7a2` | keep ROW a keyword in CURRENT ROW window frame bounds | `ROWS BETWEEN ... AND CURRENT ROW` had `ROW` quoted as a column | unit + Duck IT 60 | `gaps-2026-10-06.txt` |
-| 3 | `fix/bigquery-csv-skip-leading-rows` | `a396afb` | accept skipLeadingRows sent as a string in load jobs | the Python client sends `skipLeadingRows` as a string; dbt seeds loaded the header as data | Load IT 11 | `gaps-2026-10-06.txt` |
-| 4 | `fix/bigquery-generate-date-array` | `f1a758d` | support GENERATE_DATE_ARRAY | shim over `generate_series`; NULL bound gives `[]`, zero step errors like BigQuery | 60 | `gaps-2026-10-06.txt` |
-| 5 | `fix/bigquery-alter-table-set-options` | `78033dd` | support ALTER TABLE and ALTER VIEW SET OPTIONS | dbt-bigquery runs `alter table <seed> set OPTIONS()` after every seed; description, friendly_name, labels, expiration_timestamp, NULL clears, IF EXISTS | unit 50, DML IT 13 | `alter-2026-10-06-{a,b,c}.txt` |
-| 6 | `fix/bigquery-struct-star-expansion` | `6cbee56` | expand STRUCT values with .* (unnest) | `expr.*` on a STRUCT (dotted path, call, subscript), e.g. `ARRAY_AGG(STRUCT(...))[OFFSET(0)].*` | unit 49, Duck IT 11 | `struct-star-2026-10-06.txt` |
-| 7 | `fix/bigquery-initcap` | `709c9d7` | support INITCAP | DuckDB has no INITCAP; character walk with BigQuery's default delimiter set and optional custom delimiters | unit 49, Duck IT 11 | `initcap-2026-10-06.txt` |
-| 8 | `fix/bigquery-any-value-having` | `44bc5ea` | support ANY_VALUE with HAVING MAX and HAVING MIN | `ANY_VALUE(x HAVING MAX y)` was a parser error; now `arg_max_null`/`arg_min_null` with BigQuery's NULL and tie rules, and its error for `OVER` | unit 49, Duck IT 11 | `having-max-2026-10-06.txt` |
-| 9 | `fix/bigquery-alias-after-null-keyword` | `e3f6110` | treat a name after NULL, TRUE or FALSE as an implicit alias | `SELECT x IS NOT NULL c` (also `NULL n`, `TRUE t`, `x IS NOT FALSE nf`) got `AS f0_` appended after the alias, a DuckDB syntax error; `NULL`/`TRUE`/`FALSE` now end a value like `END` does | unit 49, Duck IT 11, DML IT 12 | `null-alias-2026-10-07.txt` |
-| 10 | `fix/bigquery-is-distinct-from` | `f77e84c` | keep IS [NOT] DISTINCT FROM out of FROM clause handling | the `FROM` in `a IS [NOT] DISTINCT FROM b` was read as a FROM clause, so the operand was resolved as a table (`Table name "b" missing dataset`) in the select list, `WHERE`, `JOIN ... ON` and `CASE WHEN` | unit 49, Duck IT 11, DML IT 12 | `is-distinct-from-2026-10-07.txt` |
-| 11 | `fix/bigquery-format-date-shorthands` | `5cbee24`, `7eff0c9`, `276a55b` | support every BigQuery format element in FORMAT_* and PARSE_*, including formats read from a column | DuckDB lacks or renders differently 22 of the 47 elements (`%C %c %e %g %k %l %n %P %Q %r %s %t %x %z %Ez %E4Y %E<n>S %E*S` and the `%F %D %R` composites) and only takes a constant strftime format. Constant formats (literal or parameter) are split in Java: shared elements in one strftime, composites spelled out, the rest emulated and concatenated; formats from a column are split per row (`regexp_extract_all` + a constant strftime per element). Unknown elements and a trailing `%` print as written, like BigQuery. PARSE_* expands composites of constant formats. Crispin One Page uses `FORMAT_DATE('%F', ...)` | unit 51, Duck IT 13 (47 elements x 2 timestamps, constant and per row) | `format-date-shorthands.json`, `format-param-shorthands.json`, `format-elements-bigquery.json`, `format-from-column.json`, `format-element-edges.json` |
-| 12 | `fix/bigquery-string-param-temporal-coercion` | `7be55a1` | coerce date-shaped STRING parameters like BigQuery | STRING params were inlined as `CAST(... AS VARCHAR)` and DuckDB refuses `DATE BETWEEN VARCHAR`; date-shaped values are now untyped literals (DuckDB casts them implicitly), others keep the cast so `INT64 = STRING` still fails as in BigQuery | unit 52, Duck IT 12 | `string-param-coercion.json`, `string-param-vs-int64.json`, `string-param-invalid-date.json` |
-| 13 | `fix/bigquery-alias-after-parameter` | `b4ffd44` | keep an implicit alias that follows a query parameter | `SELECT @p x` / `SELECT ? y` got `AS f0_` appended after the alias (DuckDB syntax error); `isAliasable` now accepts named and positional parameters | unit 52, Duck IT 11 | `param-implicit-alias.json` |
-| 14 | `fix/bigquery-string-param-date-arithmetic` | `f238e8b` | coerce STRING operands of date and time functions | `DATE_ADD(@d, INTERVAL 1 DAY)` with a STRING `@d` (or a string literal) failed: DuckDB has no `VARCHAR + INTERVAL`. A string literal or STRING parameter operand of `*_ADD`, `*_SUB`, `*_DIFF`, `*_TRUNC` (DATE, DATETIME, TIMESTAMP, TIME) is cast to the function's type | unit 51, Duck IT 12 | `string-param-date-arithmetic.json`, `string-param-date-arithmetic-it.json` |
+| 1 | `fix/bigquery-array-null-element` | `430a333` | [#371](https://github.com/floci-io/floci-gcp/issues/371) | fail the query when a result array has a NULL element | 17 Duck IT + 3 engine unit tests pass with the fix; 2 new tests fail on main | `array-null-*.json`, `array-agg-null-element-*.json` |
+| 2 | `fix/bigquery-array-subscripts` | `b611394` | [#381](https://github.com/floci-io/floci-gcp/issues/381) | translate OFFSET, ORDINAL and SAFE_ array subscripts | 90 pass with the fix; 5 new tests fail on main | `gaps-2026-10-06.txt` |
+| 3 | `fix/bigquery-window-frame-current-row` | `743cf06` | [#382](https://github.com/floci-io/floci-gcp/issues/382) | keep ROW a keyword in CURRENT ROW window frame bounds | 74 pass with the fix; 2 new tests fail on main | `gaps-2026-10-06.txt` |
+| 4 | `fix/bigquery-csv-skip-leading-rows` | `a0bc82d` | [#383](https://github.com/floci-io/floci-gcp/issues/383) | accept skipLeadingRows sent as a string in load jobs | 11 pass with the fix; 1 new test fails on main | `gaps-2026-10-06.txt` |
+| 5 | `fix/bigquery-generate-date-array` | `82c0a81` | [#384](https://github.com/floci-io/floci-gcp/issues/384) | support GENERATE_DATE_ARRAY | 74 pass with the fix; 2 new tests fail on main | `gaps-2026-10-06.txt` |
+| 6 | `fix/bigquery-alter-table-set-options` | `f81ce7b` | [#395](https://github.com/floci-io/floci-gcp/issues/395) | support ALTER TABLE and ALTER VIEW SET OPTIONS | 72 pass with the fix; the new DML IT test fails on main (the unit tests need the fix to compile, so they were left out of that run) | `alter-2026-10-06-{a,b,c}.txt` |
+| 7 | `fix/bigquery-struct-star-expansion` | `116645e` | [#385](https://github.com/floci-io/floci-gcp/issues/385) | expand STRUCT values with .* (unnest) | 74 pass with the fix; 2 new tests fail on main | `struct-star-2026-10-06.txt` |
+| 8 | `fix/bigquery-initcap` | `9f44ada` | [#386](https://github.com/floci-io/floci-gcp/issues/386) | support INITCAP | 74 pass with the fix; 2 new tests fail on main | `initcap-2026-10-06.txt` |
+| 9 | `fix/bigquery-any-value-having` | `d3bab16` | [#387](https://github.com/floci-io/floci-gcp/issues/387) | support ANY_VALUE with HAVING MAX and HAVING MIN | 74 pass with the fix; 2 new tests fail on main | `having-max-2026-10-06.txt` |
+| 10 | `fix/bigquery-alias-after-null-keyword` | `0d1329a` | [#388](https://github.com/floci-io/floci-gcp/issues/388) | treat a name after NULL, TRUE or FALSE as an implicit alias | 74 pass with the fix; 2 new tests fail on main | `null-alias-2026-10-07.txt` |
+| 11 | `fix/bigquery-is-distinct-from` | `1e50d58` | [#389](https://github.com/floci-io/floci-gcp/issues/389) | keep IS [NOT] DISTINCT FROM out of FROM clause handling | 74 pass with the fix; 2 new tests fail on main | `is-distinct-from-2026-10-07.txt` |
+| 12 | `fix/bigquery-format-date-shorthands` | `7c8bd24` | [#390](https://github.com/floci-io/floci-gcp/issues/390) | support every format element and formats read from a column | 74 pass with the fix; 3 new tests fail on main | `format-*.json` |
+| 13 | `fix/bigquery-string-param-temporal-coercion` | `640a706` | [#391](https://github.com/floci-io/floci-gcp/issues/391) | coerce date-shaped STRING parameters like BigQuery | 74 pass with the fix; 2 new tests fail on main | `string-param-*.json` |
+| 14 | `fix/bigquery-alias-after-parameter` | `6d36c30` | [#392](https://github.com/floci-io/floci-gcp/issues/392) | keep an implicit alias that follows a query parameter | 73 pass with the fix; 2 new tests fail on main | `param-implicit-alias.json` |
+| 15 | `fix/bigquery-string-param-date-arithmetic` | `5124218` | [#393](https://github.com/floci-io/floci-gcp/issues/393) | coerce STRING operands of date and time functions | 73 pass with the fix; 2 new tests fail on main | `string-param-date-arithmetic*.json` |
 
 Notes for when these go up:
 
-- AGENTS.md cleanup still needed (audit 2026-10-07; all open PRs are clean): inline fully-qualified names in #1 (`java.util.Arrays.asList`, 1), #5 (`java.math.BigDecimal` in `src/main`, `java.util.Map.of` in a test), #6 (1), #8 (3), #9 (2) and #10 (2). Replace with imports when rebasing each branch.
 - The subscripts rewrite must run in `run()`/`runDml()`, not `prepare()`: `classify()` re-translates CREATE TABLE/VIEW text, and the rewrite is not idempotent.
-- The subscripts pass and #336's ARRAY_AGG shim both touch `ARRAY_AGG(...)[...]`; re-test that combination after rebasing.
-- Translator tests from different branches land in the same spots; resolve conflicts by keeping both sides and check with `git diff --name-only --diff-filter=U` before committing a merge.
+- These branches all add tests to the same spots in `SqlDialectTranslatorTest` and `BigQueryDuck*IntegrationTest`, so each one will need a rebase after the one before it merges. On 2026-10-13 a "keep both sides" conflict resolution broke the test files (method bodies spliced into each other); they were rebuilt member by member (`/tmp/member_merge.py`: upstream members plus the branch's added or changed members, in the branch's order). Compile the tests after any rebase.
+- The #371 PR body is ready in `~/floci-json-evidence/pr-bodies/371-array-null-element.md` (local). Write the others from the issue text when their turn comes.
 
 ## `local/all-fixes`
 
 Integration branch: `upstream/main` (merged 2026-10-08 at `362809b`, which brings #294, the Firestore nested update mask fix bob's `update_source` needs) plus every PR branch above and all 14 held fixes, merged. It is what the local `floci-gcp:local` image is built from (`docker build -f docker/Dockerfile -t floci-gcp:local .`). With it, bob-datahub-sync's dbt project builds 166/166 models and all of its `/ads/*` dashboard endpoints answer. Rebuild it from the branches; don't send it upstream.
 
-Status 2026-10-09: up to date at `50101b7`. It has `upstream/main` `87b4f26` (so #335 as merged, #358, #361, #363), the current heads of #336 (`0a8619d`), #347 (`1c7515e`), #348, #349 and #356 (merged in for the first time), and all 14 held fixes; the subscripts fix is now the final `c8ce5ac` with its two CTAS regression tests. BigQuery, Firestore and Secret Manager tests: 425 passed. The `floci-gcp:local` image has not been rebuilt from it yet.
+Stale since 2026-10-13: the held fixes were rebased and their heads changed (see the queue table), and the #380 and #371 fixes are not in it. Rebuild before using it again. Status 2026-10-09: up to date at `50101b7`. It has `upstream/main` `87b4f26` (so #335 as merged, #358, #361, #363), the current heads of #336 (`0a8619d`), #347 (`1c7515e`), #348, #349 and #356 (merged in for the first time), and all 14 held fixes; the subscripts fix is now the final `c8ce5ac` with its two CTAS regression tests. BigQuery, Firestore and Secret Manager tests: 425 passed. The `floci-gcp:local` image has not been rebuilt from it yet.
 
 ## Known, not fixed yet
 
-- [#380](https://github.com/floci-io/floci-gcp/issues/380) (opened 2026-10-13, follow-up to #347): BigQuery keeps unnamed columns anonymous through subqueries and CTEs and names only the final result (`f0_`, `f1_`, skipping named columns: `SELECT * FROM (SELECT 1 + 1, 2 AS x, 3 + 3)` is `f0_, x, f1_`); floci names them after the expression text (`(1 + 1)`), because only the outermost select list gets generated names. Evidence `subquery-names-*.json`.
-
-- [#371](https://github.com/floci-io/floci-gcp/issues/371) (opened 2026-10-09, asked for by hectorvent on #336): a result row with an array that has a NULL element must fail the query (`Array cannot have a null element; error in writing field a`); floci returns the NULL element. Applies to any array in the output, not only `ARRAY_AGG`. Evidence `array-agg-null-element-*.json`, `array-literal-null-element-output.json`, `array-agg-struct-null-field-output.json`.
-
+- Found while fixing #371 and #380 (2026-10-13), not reported yet:
+  - `ARRAY_TO_STRING(arr, sep, null_text)` (three arguments) fails with a DuckDB binder error.
+  - BigQuery renames a repeated named result column (`SELECT x, * FROM (SELECT 3 AS x)` gives `x`, `x_1`); floci fails with the duplicate column error.
+  - BigQuery rejects an anonymous column in `CREATE TABLE ... AS SELECT` / `CREATE VIEW` ("columns must be named"); floci accepts it.
+  - BigQuery rejects a NULL array element written by `INSERT ... VALUES` / `INSERT ... SELECT` (`Array cannot have a null element; error in writing field a at [1:62]`); the #371 fix covers query results and CTAS only. Evidence `array-null-insert*.json`.
 - PARSE_* with a format read from a column: DuckDB requires a constant strptime format and there is no per-row split for parsing. Literal and parameter formats work.
 - PARSE_* with elements DuckDB lacks (`%e`, `%k`, `%Q`, ...): only the composites are expanded for parsing.
 - FORMAT_TIMESTAMP's time zone argument is ignored (pre-existing); `%z`/`%Ez` print the UTC offset.

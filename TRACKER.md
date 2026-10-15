@@ -35,6 +35,8 @@ Most of these were found by running a real dbt-bigquery project (bob-datahub-syn
 | [#412](https://github.com/floci-io/floci-gcp/pull/412) | [#371](https://github.com/floci-io/floci-gcp/issues/371) | `fix/bigquery-array-null-element` | fail the query when a result array has a NULL element | open, draft (2026-10-14), head ecfc58c, rebased onto a27384b; `bigquery` package 247 tests pass; its tests fail without the fix |
 | [#356](https://github.com/floci-io/floci-gcp/pull/356) | [#261](https://github.com/floci-io/floci-gcp/issues/261) (filed by hectorvent) | `fix/bigquery-duckdb-external-access` | stop queries from reading files and URLs through DuckDB | ready for review (2026-10-14); rebased onto a27384b (head f1b0933 after Greptile's P2 asked for a dry-run lock test; test file rebuilt from main plus the PR's additions after a conflict); 246 BigQuery tests pass, `queriesCannotReadFilesOrUrls` fails without the fix |
 
+Branches of merged PRs (#307, #308, #317, #325, #330, #335, #336, #347, #348) were deleted from this fork and locally on 2026-10-15, with their worktrees; each local tip matched the merged PR head. The `local/all-fixes` branch still has them merged in.
+
 ## Issues I opened
 
 | Issue | Title | State | Fixed by |

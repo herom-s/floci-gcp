@@ -37,7 +37,7 @@ Most of these were found by running a real dbt-bigquery project (bob-datahub-syn
 | [#429](https://github.com/floci-io/floci-gcp/pull/429) | [#426](https://github.com/floci-io/floci-gcp/issues/426) | `docs/bigquery-duckdb-lock-extensions` | note that the DuckDB lock also stops extension loading | open, draft (2026-10-16), head 0836d92; javadoc only |
 | [#356](https://github.com/floci-io/floci-gcp/pull/356) | [#261](https://github.com/floci-io/floci-gcp/issues/261) (filed by hectorvent) | `fix/bigquery-duckdb-external-access` | stop queries from reading files and URLs through DuckDB | merged 2026-10-16 (avison9 checked every caller path end to end on the sidecar; hectorvent checked DuckDB 1.5.4); follow-ups #426 (javadoc: the lock also stops extension loading) and #427 (end-to-end INSERT ... SELECT test) |
 
-Branches of merged PRs (#307, #308, #317, #325, #330, #335, #336, #347, #348) were deleted from this fork and locally on 2026-10-15, with their worktrees; each local tip matched the merged PR head. The `local/all-fixes` branch still has them merged in.
+Branches of merged PRs (#307, #308, #317, #325, #330, #335, #336, #347, #348 on 2026-10-15; #349, #356 on 2026-10-16) were deleted from this fork and locally, with their worktrees; each local tip matched the merged PR head. The `local/all-fixes` branch still has them merged in.
 
 ## Issues I opened
 

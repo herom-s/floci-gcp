@@ -43,7 +43,10 @@ final class SqlDialectTranslator {
     record TableRef(String datasetId, String tableId) {}
 
     record Translation(String sql, Set<TableRef> tables, Set<InformationSchema.Ref> informationSchema,
-                       boolean needsUnicodeCaseFold) {}
+                       boolean needsUnicodeCaseFold, List<MissingStructField> missingStructFields) {}
+
+    /** An {@code alias.field} in ORDER BY naming a field the STRUCT select alias does not have, as written. */
+    record MissingStructField(String alias, String field) {}
 
     private record UnnestOffset(String name, int nextToken) {}
 
@@ -129,6 +132,7 @@ final class SqlDialectTranslator {
     private int generatedInitcapName;
     private int generatedAnyValueName;
     private boolean needsUnicodeCaseFold;
+    private final List<MissingStructField> missingStructFields = new ArrayList<>();
     private boolean queryResult;
 
     private List<Token> tokens;
@@ -1390,7 +1394,8 @@ final class SqlDialectTranslator {
         if (first.equals("MERGE")) {
             out.append(" RETURNING merge_action");
         }
-        return new Translation(out.toString().trim(), tables, informationSchema, needsUnicodeCaseFold);
+        return new Translation(out.toString().trim(), tables, informationSchema, needsUnicodeCaseFold,
+                List.copyOf(missingStructFields));
     }
 
     /**
@@ -2387,7 +2392,8 @@ final class SqlDialectTranslator {
             rendered = "SELECT *" + replacementStarExclusion + " FROM (" + rendered
                     + ") AS \"_floci_star_replace\"";
         }
-        return new Translation(rendered, tables, informationSchema, needsUnicodeCaseFold);
+        return new Translation(rendered, tables, informationSchema, needsUnicodeCaseFold,
+                List.copyOf(missingStructFields));
     }
 
     /**
@@ -7457,8 +7463,9 @@ final class SqlDialectTranslator {
      * of a qualified path such as {@code t.s.n} is a column of {@code t}, not the alias, and is left alone. In
      * ORDER BY, DuckDB reads a bare name as a select alias and an integer literal as a column position, so the
      * expression is wrapped in {@code list_extract([...], 1)}, which keeps its value and type. There, as in
-     * BigQuery, a field the alias does not have is an error rather than a column of a table of the same name;
-     * the message is the start of BigQuery's, which goes on to name the field types floci does not know.
+     * BigQuery, a field the alias does not have is an error rather than a column of a table of the same name. It
+     * is recorded so the engine can name the struct's type before the query runs; the {@code error(...)} left in
+     * its place is the fallback for a path that does not check.
      */
     private void replaceStructAliasFields(int start, int end, Map<String, Map<String, List<Token>>> aliases,
                                           boolean orderBy) {
@@ -7485,6 +7492,8 @@ final class SqlDialectTranslator {
                     ? null
                     : fields.get(tokens.get(field).identifierText().toLowerCase(Locale.ROOT));
             if (fields != null && expression == null && orderBy) {
+                missingStructFields.add(new MissingStructField(alias.identifierText(),
+                        tokens.get(field).identifierText()));
                 String message = "Field name " + tokens.get(field).identifierText() + " does not exist in STRUCT";
                 expression = List.of(Token.raw("error('" + message.replace("'", "''") + "')"));
             }

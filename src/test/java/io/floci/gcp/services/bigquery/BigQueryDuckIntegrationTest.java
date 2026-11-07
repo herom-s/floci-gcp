@@ -1419,16 +1419,24 @@ class BigQueryDuckIntegrationTest {
     @Order(5)
     void orderByAMissingStructAliasFieldNamesTheFieldLikeBigQuery() {
         for (String[] c : new String[][] {
-                {"SELECT STRUCT(x AS n) AS s FROM UNNEST([3, 1, 2]) x ORDER BY s.zz", "zz"},
-                {"SELECT STRUCT(x AS n) AS s FROM UNNEST([3, 1, 2]) x ORDER BY s.ZZ", "ZZ"},
-                {"SELECT (SELECT AS STRUCT x AS n) AS s FROM UNNEST([3, 1, 2]) x ORDER BY s.zz", "zz"},
-                {"SELECT STRUCT(s.x AS n) AS s FROM (SELECT 1 AS x, 2 AS zz) s ORDER BY s.zz", "zz"},
-                {"SELECT x, STRUCT(x AS n) AS s FROM UNNEST([2, 1, 3]) x QUALIFY ROW_NUMBER() OVER (ORDER BY s.zz) <= 2", "zz"},
+                {"SELECT STRUCT(x AS n) AS s FROM UNNEST([3, 1, 2]) x ORDER BY s.zz", "zz", "STRUCT<n INT64>"},
+                {"SELECT STRUCT(x AS n) AS s FROM UNNEST([3, 1, 2]) x ORDER BY s.ZZ", "ZZ", "STRUCT<n INT64>"},
+                {"SELECT STRUCT(x AS n, 'a' AS m) AS s FROM UNNEST([3, 1, 2]) x ORDER BY s.zz", "zz",
+                        "STRUCT<n INT64, m STRING>"},
+                {"SELECT STRUCT(x AS n) AS s FROM UNNEST(ARRAY<INT64>[]) x ORDER BY s.zz", "zz", "STRUCT<n INT64>"},
+                {"SELECT (SELECT AS STRUCT x AS n) AS s FROM UNNEST([3, 1, 2]) x ORDER BY s.zz", "zz", "STRUCT<n INT64>"},
+                {"SELECT STRUCT(s.x AS n) AS s FROM (SELECT 1 AS x, 2 AS zz) s ORDER BY s.zz", "zz", "STRUCT<n INT64>"},
+                {"SELECT x, STRUCT(x AS n) AS s FROM UNNEST([2, 1, 3]) x QUALIFY ROW_NUMBER() OVER (ORDER BY s.zz) <= 2",
+                        "zz", "STRUCT<n INT64>"},
         }) {
             query(Map.of("query", c[0], "useLegacySql", false))
                     .then().statusCode(400)
-                    .body("error.message", containsString("Field name " + c[1] + " does not exist in STRUCT"));
+                    .body("error.message", equalTo("Field name " + c[1] + " does not exist in " + c[2]));
         }
+        query(Map.of("query", "SELECT STRUCT(x AS n) AS s FROM UNNEST([3, 1, 2]) x ORDER BY s.zz",
+                "useLegacySql", false, "dryRun", true))
+                .then().statusCode(400)
+                .body("error.message", equalTo("Field name zz does not exist in STRUCT<n INT64>"));
     }
 
     private static void assertNullElementError(String sql, String field) {

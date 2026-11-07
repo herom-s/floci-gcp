@@ -2922,6 +2922,10 @@ class SqlDialectTranslatorTest {
         assertTrue(qualify.contains("OVER (ORDER BY list_extract([x], 1))"), qualify);
         String subquery = sql("SELECT (SELECT AS STRUCT y AS n FROM ds.u) AS s FROM ds.t ORDER BY s.n");
         assertTrue(subquery.endsWith("ORDER BY s.n"), subquery);
+        String missing = sql("SELECT STRUCT(x AS n) AS s FROM ds.t ORDER BY s.zz");
+        assertTrue(missing.endsWith("ORDER BY list_extract([error('Field name zz does not exist in STRUCT')], 1)"), missing);
+        String havingMissing = sql("SELECT STRUCT(x AS n) AS s FROM ds.t GROUP BY x HAVING s.zz > 0");
+        assertTrue(havingMissing.contains("HAVING s.zz > 0"), havingMissing);
         String aggregateField = sql("SELECT x, (SELECT AS STRUCT COUNT(*) AS n) AS s FROM ds.t ORDER BY s.n");
         assertTrue(aggregateField.endsWith("ORDER BY s.n"), aggregateField);
         String nestedAggregate = sql("SELECT x, (SELECT AS STRUCT (SELECT MAX(y) FROM ds.u) AS n) AS s FROM ds.t ORDER BY s.n");

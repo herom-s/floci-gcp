@@ -7456,7 +7456,9 @@ final class SqlDialectTranslator {
      * Replaces each {@code alias.field} between {@code start} and {@code end} with the field's expression; the tail
      * of a qualified path such as {@code t.s.n} is a column of {@code t}, not the alias, and is left alone. In
      * ORDER BY, DuckDB reads a bare name as a select alias and an integer literal as a column position, so the
-     * expression is wrapped in {@code list_extract([...], 1)}, which keeps its value and type.
+     * expression is wrapped in {@code list_extract([...], 1)}, which keeps its value and type. There, as in
+     * BigQuery, a field the alias does not have is an error rather than a column of a table of the same name;
+     * the message is the start of BigQuery's, which goes on to name the field types floci does not know.
      */
     private void replaceStructAliasFields(int start, int end, Map<String, Map<String, List<Token>>> aliases,
                                           boolean orderBy) {
@@ -7482,6 +7484,10 @@ final class SqlDialectTranslator {
             List<Token> expression = fields == null
                     ? null
                     : fields.get(tokens.get(field).identifierText().toLowerCase(Locale.ROOT));
+            if (fields != null && expression == null && orderBy) {
+                String message = "Field name " + tokens.get(field).identifierText() + " does not exist in STRUCT";
+                expression = List.of(Token.raw("error('" + message.replace("'", "''") + "')"));
+            }
             if (expression == null) {
                 continue;
             }

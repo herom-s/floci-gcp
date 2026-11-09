@@ -120,6 +120,9 @@ Branches of merged PRs (#307, #308, #317, #325, #330, #335, #336, #347, #348 on 
 | [#620](https://github.com/floci-io/floci-gcp/issues/620) | a bare subscript on REGEXP_EXTRACT_ALL, ARRAY_SLICE or an ARRAY field path stays one-based; ARRAY_SLICE offsets and REGEXP_EXTRACT_ALL groups also differ | open, opened 2026-11-09 from avison9's #614 review (comment with the two value bugs) | #623 (draft) |
 | [#621](https://github.com/floci-io/floci-gcp/issues/621) | ORDER BY sorts NaN after every FLOAT64 value instead of just after NULL | open, opened 2026-11-09 from avison9's #615 review | #624 (draft) |
 | [#625](https://github.com/floci-io/floci-gcp/issues/625) | a STRING parameter with a lowercase t or z is not coerced to TIMESTAMP | open, opened 2026-11-09, split from #555 per avison9's #617 review | documented deviation; no fix planned (DuckDB cannot parse it) |
+| [#626](https://github.com/floci-io/floci-gcp/issues/626) | a typed STRUCT constructor STRUCT<n INT64>(x) fails to parse | open, opened 2026-11-09 from avison9's #618 review | row 38 |
+| [#627](https://github.com/floci-io/floci-gcp/issues/627) | ORDER BY a missing field of an aliased source STRUCT column gives DuckDB's message | open, opened 2026-11-09 from avison9's #618 review | row 39 |
+| [#628](https://github.com/floci-io/floci-gcp/issues/628) | UNION ALL of STRUCT values keeps fields from every branch instead of the first branch's names | open, opened 2026-11-09 from avison9's #618 review (unrelated bug he hit) | row 40 |
 | [#603](https://github.com/floci-io/floci-gcp/issues/603) | an ascending ORDER BY sorts NULL last instead of first | closed 2026-11-09 | #615 (merged) |
 | [#604](https://github.com/floci-io/floci-gcp/issues/604) | a bare subscript on a written CAST(... AS ARRAY<T>) stays one-based | closed 2026-11-09 | #614 (merged) |
 
@@ -168,6 +171,9 @@ Rows 12 to 15 are still on `upstream/main` @ `532679c` (rebased and pushed 2026-
 | 35 | `fix/bigquery-missing-struct-alias-field` | `0a2984e` | [#590](https://github.com/floci-io/floci-gcp/issues/590) | ORDER BY/QUALIFY on a field a STRUCT select alias lacks fails with BigQuery's message prefix | opened as draft #618 on 2026-11-07; full fix (BigQuery message with type, zero rows) per herom-s, 705 pass | `missing-field-2026-11-07.txt`, `probe-590.sh` |
 | 36 | `fix/bigquery-array-slice-regexp-extract-all` | `bf10955` | [#620](https://github.com/floci-io/floci-gcp/issues/620) | ARRAY_SLICE offsets, REGEXP_EXTRACT_ALL capture group, both in ARRAY_FUNCTIONS; field path as a docs deviation | opened as draft #623 on 2026-11-09 (711 pass; both new tests fail on main) | `followups-2026-11-09.txt`, `array-funcs-*-2026-11-09.txt` |
 | 37 | `fix/bigquery-nan-sort-order` | `203fb87` | [#621](https://github.com/floci-io/floci-gcp/issues/621) | leading NaN sort key on each ORDER BY key (query, OVER, ordered aggregates), typeof-guarded; skipped after set operations, RANGE frames, ordinals, positional parameters | opened as draft #624 on 2026-11-09: herom-s picked full, then narrow; full version broke 32 translator tests, narrow version 712 pass with none changed | `nan-order-2026-11-09.txt` |
+| 38 | `fix/bigquery-typed-struct-constructor` | not written | [#626](https://github.com/floci-io/floci-gcp/issues/626) | translate STRUCT<name type, ...>(value, ...) and let structSelectAliases read its fields | to do | `review-618b-2026-11-09.txt` |
+| 39 | `fix/bigquery-source-struct-missing-field` | not written | [#627](https://github.com/floci-io/floci-gcp/issues/627) | BigQuery's missing-field message for an aliased source STRUCT column (map DuckDB's "Could not find key", type via describe) | to do (after #618) | `review-618b-2026-11-09.txt` |
+| 40 | `fix/bigquery-union-struct-field-names` | not written | [#628](https://github.com/floci-io/floci-gcp/issues/628) | later UNION branches take the first branch's STRUCT field names | to do | `review-618b-2026-11-09.txt` |
 
 Notes for when these go up:
 

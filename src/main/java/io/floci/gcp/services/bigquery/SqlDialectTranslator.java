@@ -1396,6 +1396,7 @@ final class SqlDialectTranslator {
     private Translation runDml(String sql) {
         prepare(sql);
         bindPositionalParameters();
+        coerceLowercaseTemporalParameters();
         collectCteNames();
         rewriteTypedArrayLiterals();
         rewriteTypedStructConstructors();
@@ -2413,6 +2414,7 @@ final class SqlDialectTranslator {
     private Translation run(String sql) {
         prepare(sql);
         bindPositionalParameters();
+        coerceLowercaseTemporalParameters();
         String statement = statementType(sql);
         if (!statement.equals("SELECT")) {
             throw invalidQuery("Statement type " + statement + " is not supported by the floci BigQuery"
@@ -8981,6 +8983,188 @@ final class SqlDialectTranslator {
      * out of order or copy their tokens. The bound literal stays on the token, so every later rendering
      * of that placeholder uses the same value.
      */
+    private static final Set<String> COMPARISON_OPERATORS = Set.of("=", "!=", "<>", "<", ">", "<=", ">=");
+    private static final Set<String> TEMPORAL_TYPES = Set.of("TIMESTAMP", "DATETIME", "DATE");
+    private static final Set<String> TEMPORAL_FUNCTIONS = Set.of("CURRENT_TIMESTAMP", "CURRENT_DATETIME",
+            "CURRENT_DATE", "TIMESTAMP", "DATETIME", "DATE", "TIMESTAMP_ADD", "TIMESTAMP_SUB", "TIMESTAMP_TRUNC",
+            "DATETIME_ADD", "DATETIME_SUB", "DATETIME_TRUNC", "DATE_ADD", "DATE_SUB", "DATE_TRUNC", "PARSE_TIMESTAMP",
+            "PARSE_DATETIME", "PARSE_DATE", "TIMESTAMP_SECONDS", "TIMESTAMP_MILLIS", "TIMESTAMP_MICROS");
+
+    /**
+     * BigQuery coerces a STRING parameter written like a timestamp with a lowercase {@code t} separator or
+     * {@code z} zone ({@code 2014-09-27t12:30:00z}) when it is compared with a TIMESTAMP, DATETIME or DATE.
+     * DuckDB cannot parse the lowercase forms, so such a parameter is rendered as the uppercased literal, which
+     * DuckDB casts implicitly as it does an uppercase one, but only where the other side of the comparison (or of
+     * a BETWEEN) is temporal as written: a typed literal, a temporal function or CAST, or a table column of that
+     * type. Read anywhere else, the value stays the STRING the caller passed.
+     */
+    private void coerceLowercaseTemporalParameters() {
+        for (int i = 0; i < tokens.size(); i++) {
+            Token t = tokens.get(i);
+            if (t.kind != Kind.NAMED_PARAM && t.kind != Kind.POSITIONAL_PARAM) {
+                continue;
+            }
+            String normalized = QueryParameters.lowercaseTemporal(
+                    t.kind == Kind.NAMED_PARAM ? parameters.named(t.value) : t.value);
+            if (normalized != null && comparedWithTemporal(i)) {
+                tokens.set(i, Token.raw(DuckTypes.quoteLiteral(normalized)));
+            }
+        }
+    }
+
+    private boolean comparedWithTemporal(int param) {
+        int before = significantBefore(param);
+        int after = nextSignificant(param + 1, tokens.size());
+        if (after >= 0 && isComparison(tokens.get(after))) {
+            return startsTemporal(nextSignificant(after + 1, tokens.size()));
+        }
+        if (before < 0) {
+            return false;
+        }
+        if (isComparison(tokens.get(before)) || tokens.get(before).isKeyword("BETWEEN")) {
+            return endsTemporal(significantBefore(before));
+        }
+        if (tokens.get(before).isKeyword("AND")) {
+            // The upper bound of x BETWEEN low AND @a.
+            int low = operandStart(significantBefore(before));
+            int between = low < 0 ? -1 : significantBefore(low);
+            return between >= 0 && tokens.get(between).isKeyword("BETWEEN") && endsTemporal(significantBefore(between));
+        }
+        return false;
+    }
+
+    private static boolean isComparison(Token token) {
+        return token.kind == Kind.PUNCT && COMPARISON_OPERATORS.contains(token.text);
+    }
+
+    /** Where the operand ending at {@code end} starts: a call, a typed literal, a dotted path or one token. */
+    private int operandStart(int end) {
+        if (end < 0) {
+            return -1;
+        }
+        Token token = tokens.get(end);
+        if (token.isPunct(")")) {
+            int open = openingFor(end, "(", ")");
+            int name = open < 0 ? -1 : significantBefore(open);
+            return name >= 0 && tokens.get(name).kind == Kind.IDENT ? name : open;
+        }
+        int before = significantBefore(end);
+        if (token.kind == Kind.STRING && before >= 0 && TEMPORAL_TYPES.contains(tokens.get(before).upper())) {
+            return before;
+        }
+        int start = end;
+        while (before >= 1 && tokens.get(before).isPunct(".")) {
+            start = significantBefore(before);
+            before = start < 0 ? -1 : significantBefore(start);
+        }
+        return start;
+    }
+
+    private boolean endsTemporal(int end) {
+        int start = operandStart(end);
+        return start >= 0 && operandTemporal(start, end);
+    }
+
+    private boolean startsTemporal(int start) {
+        if (start < 0) {
+            return false;
+        }
+        int end = start;
+        int next = nextSignificant(start + 1, tokens.size());
+        if (next >= 0 && tokens.get(next).isPunct("(")) {
+            end = matchingParen(next);
+        } else if (next >= 0 && tokens.get(next).kind == Kind.STRING) {
+            end = next;
+        } else {
+            while (next >= 0 && tokens.get(next).isPunct(".")) {
+                int part = nextSignificant(next + 1, tokens.size());
+                if (part < 0) {
+                    break;
+                }
+                end = part;
+                next = nextSignificant(part + 1, tokens.size());
+            }
+        }
+        return end >= start && operandTemporal(start, end);
+    }
+
+    /** Whether the operand from {@code start} to {@code end} is a TIMESTAMP, DATETIME or DATE as written. */
+    private boolean operandTemporal(int start, int end) {
+        Token first = tokens.get(start);
+        if (first.kind != Kind.IDENT && first.kind != Kind.QIDENT) {
+            return false;
+        }
+        if (start == end && TEMPORAL_FUNCTIONS.contains(first.upper()) && first.upper().startsWith("CURRENT_")) {
+            return true;
+        }
+        if (tokens.get(end).kind == Kind.STRING) {
+            return TEMPORAL_TYPES.contains(first.upper());
+        }
+        if (tokens.get(end).isPunct(")")) {
+            if (first.isKeyword("CAST") || first.isKeyword("SAFE_CAST")) {
+                int type = significantBefore(end);
+                int as = type < 0 ? -1 : significantBefore(type);
+                return as >= 0 && tokens.get(as).isKeyword("AS") && TEMPORAL_TYPES.contains(tokens.get(type).upper());
+            }
+            return TEMPORAL_FUNCTIONS.contains(first.upper());
+        }
+        List<String> path = new ArrayList<>();
+        for (int i = start; i <= end; i++) {
+            if (tokens.get(i).kind == Kind.IDENT || tokens.get(i).kind == Kind.QIDENT) {
+                path.add(tokens.get(i).identifierText());
+            }
+        }
+        int select = precedingSelect(start, parenthesisDepth(start));
+        TableFieldSchema field = select < 0 ? null : sourceColumnField(select, path);
+        return field != null && !"REPEATED".equals(field.getMode()) && field.getType() != null
+                && Set.of("TIMESTAMP", "DATETIME", "DATE").contains(field.getType());
+    }
+
+    /** The schema of a column read from a table source of the query at {@code select}, or null. */
+    private TableFieldSchema sourceColumnField(int select, List<String> path) {
+        int depth = parenthesisDepth(select);
+        for (int i = select + 1; i < tokens.size(); i++) {
+            if (parenthesisDepth(i) < depth) {
+                break;
+            }
+            if (parenthesisDepth(i) != depth || !isFromClause(i)) {
+                continue;
+            }
+            List<ProjectionSource> sources = projectionSources(i, depth);
+            boolean qualified = path.size() > 1 && sources.stream()
+                    .anyMatch(source -> source.alias() != null && source.alias().equalsIgnoreCase(path.getFirst()));
+            List<String> columnPath = qualified ? path.subList(1, path.size()) : path;
+            TableFieldSchema found = null;
+            for (ProjectionSource source : sources) {
+                if (qualified && (source.alias() == null || !source.alias().equalsIgnoreCase(path.getFirst()))
+                        || !source.directTable()) {
+                    continue;
+                }
+                TableRef ref = projectionSourceTable(source.startToken());
+                List<TableFieldSchema> fields = ref == null ? null : fieldsOf.apply(ref);
+                TableFieldSchema matching = null;
+                for (String segment : columnPath) {
+                    matching = null;
+                    for (TableFieldSchema field : fields == null ? List.<TableFieldSchema>of() : fields) {
+                        if (field.getName().equalsIgnoreCase(segment)) {
+                            matching = field;
+                            break;
+                        }
+                    }
+                    fields = matching == null ? null : matching.getFields();
+                }
+                if (matching != null) {
+                    if (found != null) {
+                        return null;
+                    }
+                    found = matching;
+                }
+            }
+            return found;
+        }
+        return null;
+    }
+
     private void bindPositionalParameters() {
         for (int i = 0; i < tokens.size(); i++) {
             Token token = tokens.get(i);
@@ -14234,6 +14418,24 @@ final class SqlDialectTranslator {
 
         static QueryParameters none() {
             return new QueryParameters(List.of(), null);
+        }
+
+        private static final Pattern LOWERCASE_T = Pattern.compile("^(\\d{4}-\\d{1,2}-\\d{1,2})t(?=\\d)");
+
+        /**
+         * For a STRING parameter written like a timestamp with a lowercase {@code t} separator or a trailing
+         * {@code z}, as {@link #literal} renders it, the value with those uppercased; null for any other literal.
+         */
+        static String lowercaseTemporal(String literal) {
+            String value = stringLiteralValue(literal);
+            if (value == null) {
+                return null;
+            }
+            String normalized = LOWERCASE_T.matcher(value).replaceFirst("$1T");
+            if (normalized.endsWith("z")) {
+                normalized = normalized.substring(0, normalized.length() - 1) + "Z";
+            }
+            return !normalized.equals(value) && TEMPORAL_STRING.matcher(normalized).matches() ? normalized : null;
         }
 
         private static final Pattern STRING_LITERAL = Pattern.compile(

@@ -1613,6 +1613,31 @@ class BigQueryDuckIntegrationTest {
 
     @Test
     @Order(5)
+    void lowercaseTimestampStringParameterIsCoercedWhereComparedWithATimestampLikeBigQuery() {
+        query(Map.of("query", "CREATE TABLE shop.lowercase_ts AS SELECT TIMESTAMP '2014-09-27 20:00:00+00' AS ts"
+                + " UNION ALL SELECT TIMESTAMP '2014-09-26 00:00:00+00'", "useLegacySql", false))
+                .then().statusCode(200);
+        for (String[] c : new String[][] {
+                {"SELECT TIMESTAMP '2014-09-27 20:00:00+00' > @a AS v", "2014-09-27t12:30:00.45", "true"},
+                {"SELECT @a < TIMESTAMP '2014-09-27 20:00:00+00' AS v", "2014-09-27 12:30:00.45z", "true"},
+                {"SELECT DATETIME '2014-09-27 20:00:00' > @a AS v", "2014-09-27t12:30:00", "true"},
+                {"SELECT CURRENT_TIMESTAMP() > @a AS v", "2014-09-27t12:30:00z", "true"},
+                {"SELECT CAST('2014-09-27 20:00:00+00' AS TIMESTAMP) >= @a AS v", "2014-09-27t12:30:00", "true"},
+                {"SELECT TIMESTAMP '2014-09-27 20:00:00+00' BETWEEN @a AND TIMESTAMP '2014-09-28 00:00:00+00' AS v",
+                        "2014-09-27t12:30:00", "true"},
+                {"SELECT COUNT(*) AS n FROM shop.lowercase_ts WHERE ts > @a", "2014-09-27t12:30:00", "1"},
+                {"SELECT @a AS v, @a = '2014-09-27t12:30:00' AS same", "2014-09-27t12:30:00", "2014-09-27t12:30:00,true"},
+        }) {
+            query(Map.of("query", c[0], "useLegacySql", false, "parameterMode", "NAMED",
+                    "queryParameters", List.of(Map.of("name", "a", "parameterType", Map.of("type", "STRING"),
+                            "parameterValue", Map.of("value", c[1])))))
+                    .then().statusCode(200)
+                    .body("rows[0].f.v", equalTo(List.of(c[2].split(","))));
+        }
+    }
+
+    @Test
+    @Order(5)
     void orderByAMissingFieldOfASourceStructNamesTheFieldLikeBigQuery() {
         String source = "(SELECT STRUCT(1 AS n, STRUCT('a' AS k) AS m) AS s) t";
         for (String[] c : new String[][] {

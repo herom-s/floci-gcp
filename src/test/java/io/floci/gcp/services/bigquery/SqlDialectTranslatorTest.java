@@ -56,6 +56,22 @@ class SqlDialectTranslatorTest {
                 SqlDialectTranslator.QueryParameters.none(), columns::get).sql();
     }
 
+    @Test
+    void lowercaseTimestampParameterIsUppercasedOnlyWhereComparedWithATemporalValue() {
+        SqlDialectTranslator.QueryParameters a = new SqlDialectTranslator.QueryParameters(List.of(Map.of("name", "a",
+                "parameterType", Map.of("type", "STRING"), "parameterValue", Map.of("value", "2014-09-27t12:30:00z"))),
+                "NAMED");
+        String compared = SqlDialectTranslator.translate("SELECT TIMESTAMP '2014-09-27 20:00:00+00' > @a AS v",
+                "test-project", null, a).sql();
+        assertTrue(compared.contains("> '2014-09-27T12:30:00Z'"), compared);
+        String read = SqlDialectTranslator.translate("SELECT @a AS v, x = @a AS same FROM ds.t", "test-project", null, a)
+                .sql();
+        assertFalse(read.contains("T12:30"), read);
+        assertNull(SqlDialectTranslator.QueryParameters.lowercaseTemporal("CAST('buzz' AS VARCHAR)"));
+        assertEquals("2014-09-27T12:30:00", SqlDialectTranslator.QueryParameters.lowercaseTemporal(
+                "CAST('2014-09-27t12:30:00' AS VARCHAR)"));
+    }
+
     private static GcpException invalid(String sql) {
         GcpException e = assertThrows(GcpException.class, () -> translate(sql));
         assertEquals("invalidQuery", e.getReason());

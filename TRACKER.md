@@ -14,7 +14,7 @@ Most of these were found by running a real dbt-bigquery project (bob-datahub-syn
 - Branch off current `upstream/main` (rebase before sending); each PR gets its own issue with a repro.
 - Every behaviour claim is checked against real BigQuery first (sandbox project `herom-bq-sandbox-961172`; run `bq` with `CLOUDSDK_CORE_ACCOUNT=heromapp1@gmail.com`). The scripts and outputs live locally in `~/floci-json-evidence/`. If `bq` fails with "Reauthentication failed" (the user login needs an interactive `gcloud auth login`), call the REST API with the application-default token instead: `gcloud auth application-default print-access-token`, `x-goog-user-project: herom-bq-sandbox-961172`, `POST .../queries` (see `~/floci-json-evidence/*-rest-*.sh`).
 - Follow floci-gcp's AGENTS.md code style (the maintainer asked for it on #335). Before every push, check the diff for: no `var` (write the explicit type, including for-loops and try-with-resources); no inline fully-qualified names (`java.util.Arrays.asList` -> import `Arrays`); imports alphabetical with `java.*`/`javax.*` last and no wildcard imports in `src/main`; no tabs; no em-dashes anywhere, PR descriptions and commit messages included; never an empty `catch`; JBoss `LOG.debugf(...)`-style logging; switch expressions; test names as camelCase sentences. Allowed commit types: `feat`, `fix`, `perf`, `docs`, `chore`.
-- Open PRs on 2026-11-15 evening: #664 (the user's, #662) and #670 (#625) ready (2 of 2); #671 (#665) and #672 (#640) drafts (4 of 4 open). Queue: rows 48 to 54 (#649, #650, #653, #654, #655, #656, #659).
+- Open PRs on 2026-11-15 evening: #664 (the user's, #662) and #670 (#625) ready (2 of 2); #671 (#665) and #672 (#640) drafts (4 of 4 open). Queue: rows 48 to 54 (#649, #650, #653, #654, #655, #656, #659), 56 (#673).
 - 2026-10-26: top-level `SELECT AS STRUCT` result shape (found answering Greptile on #500). hectorvent's open #509 names the single RECORD column `f0_`, but live BigQuery returns one column per struct field for every shape, including `ORDER BY`/`HAVING` forms (evidence ~/floci-json-evidence/select-as-struct-509-2026-10-26.txt). Commented on #509 with the evidence instead of opening an issue; offered to open one if he prefers. Resolved: hectorvent reworked #509 to return one column per field and merged it 2026-10-27.
 - Decision 2026-10-13: open an issue for every held fix now, and open their PRs one at a time as slots free, in the queue order below.
 
@@ -150,6 +150,7 @@ Branches of merged PRs (#307, #308, #317, #325, #330, #335, #336, #347, #348 on 
 | [#659](https://github.com/floci-io/floci-gcp/issues/659) | ORDER BY a STRUCT field after a set operation fails with DuckDB's Could not ORDER BY column | open, opened 2026-11-13 from Greptile's #651 review (fails on main too) | to do |
 | [#662](https://github.com/floci-io/floci-gcp/issues/662) | Cloud Billing list methods ignore the default page size of 100 | open, opened 2026-11-15 from hectorvent's #652 review | user's #622 area, not queued |
 | [#665](https://github.com/floci-io/floci-gcp/issues/665) | BigQuery: GENERATE_UUID() is a DuckDB UUID, so string functions reject it | open, opened 2026-11-15 from #657 testing | #671 (draft) |
+| [#673](https://github.com/floci-io/floci-gcp/issues/673) | BigQuery: a select alias inside an ORDER BY expression reads the source column of the same name | open, opened 2026-11-15 from Greptile's #670 review | queued, row 56 |
 | [#603](https://github.com/floci-io/floci-gcp/issues/603) | an ascending ORDER BY sorts NULL last instead of first | closed 2026-11-09 | #615 (merged) |
 | [#604](https://github.com/floci-io/floci-gcp/issues/604) | a bare subscript on a written CAST(... AS ARRAY<T>) stays one-based | closed 2026-11-09 | #614 (merged) |
 
@@ -216,6 +217,7 @@ Rows 12 to 15 are still on `upstream/main` @ `532679c` (rebased and pushed 2026-
 | 53 | (not written) | | [#656](https://github.com/floci-io/floci-gcp/issues/656) | STRUCT(x + 0.5) types the field NUMERIC instead of FLOAT64 | not written yet (queued 2026-11-13) | |
 | 54 | (not written) | | [#659](https://github.com/floci-io/floci-gcp/issues/659) | ORDER BY a STRUCT field after a set operation (wrap as a derived table) | not written yet (queued 2026-11-13) | |
 | 55 | `fix/bigquery-generate-uuid-string` | `001cde7` | GENERATE_UUID() renders as a DuckDB UUID; cast to VARCHAR so string functions accept it | opened as draft #671 on 2026-11-15 | |
+| 56 | (not written) | | [#673](https://github.com/floci-io/floci-gcp/issues/673) | ORDER BY expression reads a same-named source column instead of the select alias (DuckDB binding) | not written yet (queued 2026-11-15) | |
 
 Notes for when these go up:
 
